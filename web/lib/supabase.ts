@@ -13,12 +13,16 @@ export function supabase(): SupabaseClient {
   if (_client) return _client;
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
+  const missing: string[] = [];
+  if (!url) missing.push("SUPABASE_URL");
+  if (!key) missing.push("SUPABASE_SERVICE_ROLE_KEY");
+  if (missing.length) {
     throw new Error(
-      "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in Vercel " +
-        "environment variables (or .env.local for local dev).",
+      `Missing env var(s): ${missing.join(", ")}. ` +
+        "Set in Vercel -> Settings -> Environment Variables for the " +
+        "Production environment, then redeploy.",
     );
   }
-  _client = createClient(url, key, { auth: { persistSession: false } });
+  _client = createClient(url!, key!, { auth: { persistSession: false } });
   return _client;
 }
