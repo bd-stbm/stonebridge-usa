@@ -38,9 +38,8 @@ export async function listSubClients(): Promise<string[]> {
     .select("sub_client_alias")
     .not("sub_client_alias", "is", null);
   if (error) throw error;
-  return Array.from(
-    new Set((data ?? []).map(r => r.sub_client_alias as string)),
-  ).sort();
+  const rows = (data ?? []) as unknown as Array<{ sub_client_alias: string }>;
+  return Array.from(new Set(rows.map(r => r.sub_client_alias))).sort();
 }
 
 export async function getLatestPositions(
@@ -56,7 +55,7 @@ export async function getLatestPositions(
     .eq("sub_client_alias", subClient)
     .order("mv_reporting", { ascending: false, nullsFirst: false });
   if (error) throw error;
-  return (data ?? []) as Position[];
+  return (data ?? []) as unknown as Position[];
 }
 
 export async function getNavSeries(
@@ -70,11 +69,16 @@ export async function getNavSeries(
 
   // Aggregate per snapshot_date across accounts in JS — PostgREST doesn't
   // expose SUM/GROUP BY without an RPC, and the row count is small.
+  const rows = (data ?? []) as unknown as Array<{
+    snapshot_date: string;
+    nav_reporting: number | null;
+  }>;
   const byDate = new Map<string, number>();
-  for (const row of data ?? []) {
-    const d = row.snapshot_date as string;
-    const v = Number(row.nav_reporting ?? 0);
-    byDate.set(d, (byDate.get(d) ?? 0) + v);
+  for (const row of rows) {
+    byDate.set(
+      row.snapshot_date,
+      (byDate.get(row.snapshot_date) ?? 0) + Number(row.nav_reporting ?? 0),
+    );
   }
   return Array.from(byDate.entries())
     .map(([snapshot_date, nav]) => ({ snapshot_date, nav }))
