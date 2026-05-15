@@ -31,10 +31,14 @@ _load_env_file()
 
 
 def connect():
-    url = os.environ.get("SUPABASE_DB_URL")
+    # Prefer the pooler URL — direct connections are IPv6-only on new
+    # Supabase projects and fail from many local networks (incl. Windows
+    # without IPv6 routing). SUPABASE_DB_URL kept as fallback.
+    url = os.environ.get("SUPABASE_POOL_URL") or os.environ.get("SUPABASE_DB_URL")
     if not url:
         raise RuntimeError(
-            "SUPABASE_DB_URL is not set. Add it to .env.local or as a GitHub Actions secret."
+            "Set SUPABASE_POOL_URL (preferred) or SUPABASE_DB_URL in .env.local "
+            "or as a GitHub Actions secret."
         )
     return psycopg.connect(url, row_factory=dict_row, autocommit=False)
 
