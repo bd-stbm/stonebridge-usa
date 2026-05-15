@@ -1,0 +1,29 @@
+name: Weekly sync (GWM)
+
+on:
+  schedule:
+    # 22:00 UTC Sunday = ~8am Sydney Monday AEST / 9am AEDT.
+    # Refreshes the entity tree before the week's daily syncs start.
+    - cron: '0 22 * * 0'
+  workflow_dispatch:
+
+concurrency:
+  group: weekly-sync
+  cancel-in-progress: false
+
+jobs:
+  gwm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MASTTRO_API_KEY:    ${{ secrets.MASTTRO_API_KEY }}
+      MASTTRO_API_SECRET: ${{ secrets.MASTTRO_API_SECRET }}
+      SUPABASE_DB_URL:    ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python scripts/sync_masttro_weekly.py
