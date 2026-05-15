@@ -11,7 +11,10 @@ let _client: SupabaseClient | null = null;
 
 export function supabase(): SupabaseClient {
   if (_client) return _client;
-  const url = process.env.SUPABASE_URL;
+  // URL is not secret — NEXT_PUBLIC_ prefix is the Next.js + Supabase
+  // convention. Service role key MUST stay un-prefixed (server-only).
+  const url =
+    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const missing: string[] = [];
   if (!url) missing.push("SUPABASE_URL");
