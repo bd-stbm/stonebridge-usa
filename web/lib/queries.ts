@@ -428,6 +428,59 @@ export async function getIncomeRows(
 }
 
 // ---------------------------------------------------------------------------
+// Transactions — generic per-event rows for the Transactions page.
+// ---------------------------------------------------------------------------
+
+export interface Transaction {
+  transaction_id: number;
+  transaction_date: string | null;
+  account_node_id: string;
+  account_alias: string | null;
+  custodian: string | null;
+  trust_alias: string | null;
+  security_id: number | null;
+  asset_name: string | null;
+  asset_class: string | null;
+  ticker_masttro: string | null;
+  transaction_type_clean: string | null;
+  comments: string | null;
+  quantity: number | null;
+  net_price_local: number | null;
+  net_amount_local: number | null;
+  net_amount_reporting: number | null;
+  local_ccy: string | null;
+  reporting_ccy: string | null;
+  is_external_flow: boolean;
+}
+
+export async function getTransactions(
+  subClient: string = DEFAULT_SUB_CLIENT,
+  trust: string | null = null,
+  account: string | null = null,
+  fromDate: string = "2020-01-01",
+  toDate: string | null = null,
+): Promise<Transaction[]> {
+  let q = getSupabaseServer()
+    .from("v_transactions")
+    .select(
+      "transaction_id, transaction_date, account_node_id, account_alias, " +
+        "custodian, trust_alias, security_id, asset_name, asset_class, " +
+        "ticker_masttro, transaction_type_clean, comments, quantity, " +
+        "net_price_local, net_amount_local, net_amount_reporting, " +
+        "local_ccy, reporting_ccy, is_external_flow",
+    )
+    .eq("sub_client_alias", subClient)
+    .gte("transaction_date", fromDate)
+    .order("transaction_date", { ascending: false });
+  if (toDate) q = q.lte("transaction_date", toDate);
+  if (trust) q = q.eq("trust_alias", trust);
+  if (account) q = q.eq("account_node_id", account);
+  const { data, error } = await q.limit(LIMIT_LARGE);
+  if (error) throw error;
+  return (data ?? []) as unknown as Transaction[];
+}
+
+// ---------------------------------------------------------------------------
 // Index benchmarks — for the Returns-vs-index comparison on the Returns tile.
 // ---------------------------------------------------------------------------
 

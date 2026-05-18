@@ -15,6 +15,7 @@ const TABS = [
   { href: "/holdings", label: "Holdings" },
   { href: "/performance", label: "Performance" },
   { href: "/income", label: "Income" },
+  { href: "/transactions", label: "Transactions" },
 ];
 
 export default async function Header({ subClient }: { subClient: string }) {
