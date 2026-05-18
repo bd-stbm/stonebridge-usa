@@ -4,11 +4,15 @@ export const DEFAULT_SUB_CLIENT = "Dyne Family (US)";
 
 export interface Position {
   account_alias: string;
+  custodian: string | null;
   trust_alias: string | null;
   asset_name: string;
   asset_class: string | null;
+  security_type: string | null;
   sector: string | null;
   ticker_masttro: string | null;
+  isin: string | null;
+  local_ccy: string | null;
   quantity: number;
   price_local: number | null;
   mv_local: number | null;
@@ -48,9 +52,10 @@ export async function getLatestPositions(
   const { data, error } = await getSupabaseServer()
     .from("v_latest_positions")
     .select(
-      "account_alias, trust_alias, asset_name, asset_class, sector, " +
-        "ticker_masttro, quantity, price_local, mv_local, mv_reporting, " +
-        "reporting_ccy, unit_cost_local, total_cost_local, unrealized_gl_local",
+      "account_alias, custodian, trust_alias, asset_name, asset_class, " +
+        "security_type, sector, ticker_masttro, isin, local_ccy, quantity, " +
+        "price_local, mv_local, mv_reporting, reporting_ccy, unit_cost_local, " +
+        "total_cost_local, unrealized_gl_local",
     )
     .eq("sub_client_alias", subClient)
     .order("mv_reporting", { ascending: false, nullsFirst: false });
