@@ -1,11 +1,18 @@
 import { cookies } from "next/headers";
 
-// Read the user's currently-selected trust filter from the cookie set by
-// the header dropdown. Returns null when "All trusts" is selected (or when
-// no cookie is set yet).
+// Cookies that persist the global Trust and Account filters across page
+// navigation. Both are scoped to "/" so they apply everywhere; values are
+// the trust_alias and account_node_id respectively.
+
+export const TRUST_COOKIE = "trust_filter";
+export const ACCOUNT_COOKIE = "account_filter";
+
 export function getSelectedTrust(): string | null {
-  const value = cookies().get("trust_filter")?.value;
+  const value = cookies().get(TRUST_COOKIE)?.value;
   return value && value.length > 0 ? value : null;
 }
 
-export const TRUST_COOKIE = "trust_filter";
+export function getSelectedAccount(): string | null {
+  const value = cookies().get(ACCOUNT_COOKIE)?.value;
+  return value && value.length > 0 ? value : null;
+}

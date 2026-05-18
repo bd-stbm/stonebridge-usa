@@ -59,6 +59,48 @@ export async function listSubClients(): Promise<string[]> {
   return Array.from(new Set(rows.map(r => r.sub_client_alias))).sort();
 }
 
+export interface AccountOption {
+  node_id: string;
+  alias: string;
+  custodian: string | null;
+  trust_alias: string | null;
+}
+
+export async function listAccounts(
+  subClient: string = DEFAULT_SUB_CLIENT,
+  trust: string | null = null,
+): Promise<AccountOption[]> {
+  // Source from v_latest_positions so we only get accounts that actually
+  // hold positions in the latest snapshot. Multiple rows per account get
+  // deduped in JS.
+  let q = getSupabaseServer()
+    .from("v_latest_positions")
+    .select("account_node_id, account_alias, custodian, trust_alias")
+    .eq("sub_client_alias", subClient);
+  if (trust) q = q.eq("trust_alias", trust);
+  const { data, error } = await q;
+  if (error) throw error;
+  const rows = (data ?? []) as unknown as Array<{
+    account_node_id: string;
+    account_alias: string | null;
+    custodian: string | null;
+    trust_alias: string | null;
+  }>;
+  const seen = new Set<string>();
+  const accounts: AccountOption[] = [];
+  for (const r of rows) {
+    if (seen.has(r.account_node_id)) continue;
+    seen.add(r.account_node_id);
+    accounts.push({
+      node_id: r.account_node_id,
+      alias: r.account_alias ?? r.account_node_id,
+      custodian: r.custodian,
+      trust_alias: r.trust_alias,
+    });
+  }
+  return accounts.sort((a, b) => a.alias.localeCompare(b.alias));
+}
+
 export async function listTrusts(
   subClient: string = DEFAULT_SUB_CLIENT,
 ): Promise<string[]> {
@@ -81,6 +123,7 @@ export async function listTrusts(
 export async function getLatestPositions(
   subClient: string = DEFAULT_SUB_CLIENT,
   trust: string | null = null,
+  account: string | null = null,
 ): Promise<Position[]> {
   // Query v_positions_refreshed (joins yfinance via pricing_refresh) so the
   // NAV figures throughout the dashboard reflect today's market price when
@@ -100,6 +143,7 @@ export async function getLatestPositions(
     )
     .eq("sub_client_alias", subClient);
   if (trust) q = q.eq("trust_alias", trust);
+  if (account) q = q.eq("account_node_id", account);
   const { data, error } = await q.order("mv_reporting_refreshed", {
     ascending: false,
     nullsFirst: false,
@@ -111,12 +155,14 @@ export async function getLatestPositions(
 export async function getNavSeries(
   subClient: string = DEFAULT_SUB_CLIENT,
   trust: string | null = null,
+  account: string | null = null,
 ): Promise<NavPoint[]> {
   let q = getSupabaseServer()
     .from("v_nav_monthly_by_account")
     .select("snapshot_date, nav_reporting")
     .eq("sub_client_alias", subClient);
   if (trust) q = q.eq("trust_alias", trust);
+  if (account) q = q.eq("account_node_id", account);
   const { data, error } = await q;
   if (error) throw error;
 
@@ -151,11 +197,12 @@ export interface PeriodReturnOverrides {
 export async function getPeriodReturns(
   subClient: string = DEFAULT_SUB_CLIENT,
   trust: string | null = null,
+  account: string | null = null,
   overrides: PeriodReturnOverrides = {},
 ): Promise<Record<PeriodKey, PeriodReturn>> {
   // NAV series across the whole history (we re-use this for the chart anyway,
   // so cost is one row-set per request — small).
-  const navs = await getNavSeries(subClient, trust);
+  const navs = await getNavSeries(subClient, trust, account);
   if (navs.length === 0) {
     return computeAllPeriodReturns([], [], overrides);
   }
@@ -165,16 +212,24 @@ export async function getPeriodReturns(
   const earliest = navs[0].snapshot_date;
   let q = getSupabaseServer()
     .from("v_external_flows")
-    .select("transaction_date, net_amount_reporting, trust_alias, sub_client_alias")
+    .select(
+      "transaction_date, net_amount_reporting, trust_alias, " +
+        "sub_client_alias, account_node_id",
+    )
     .eq("sub_client_alias", subClient)
     .gte("transaction_date", earliest);
   if (trust) q = q.eq("trust_alias", trust);
+  if (account) q = q.eq("account_node_id", account);
   const { data, error } = await q;
   if (error) throw error;
 
-  const flows: Flow[] = (data ?? []).map(r => ({
-    date: (r as { transaction_date: string }).transaction_date,
-    amount: Number((r as { net_amount_reporting: number | null }).net_amount_reporting ?? 0),
+  const flowRows = (data ?? []) as unknown as Array<{
+    transaction_date: string;
+    net_amount_reporting: number | null;
+  }>;
+  const flows: Flow[] = flowRows.map(r => ({
+    date: r.transaction_date,
+    amount: Number(r.net_amount_reporting ?? 0),
   }));
 
   const navPoints: DietzNavPoint[] = navs.map(n => ({

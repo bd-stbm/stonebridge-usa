@@ -1,8 +1,13 @@
 import Link from "next/link";
 import { getSupabaseServer } from "@/lib/supabase-server";
-import { DEFAULT_SUB_CLIENT, listTrusts } from "@/lib/queries";
-import { getSelectedTrust } from "@/lib/trust-filter";
+import {
+  DEFAULT_SUB_CLIENT,
+  listAccounts,
+  listTrusts,
+} from "@/lib/queries";
+import { getSelectedAccount, getSelectedTrust } from "@/lib/trust-filter";
 import TrustFilter from "@/components/TrustFilter";
+import AccountFilter from "@/components/AccountFilter";
 
 const TABS = [
   { href: "/", label: "Overview" },
@@ -12,11 +17,24 @@ const TABS = [
 ];
 
 export default async function Header({ subClient }: { subClient: string }) {
-  const [{ data: { user } }, trusts] = await Promise.all([
-    getSupabaseServer().auth.getUser(),
-    listTrusts(subClient ?? DEFAULT_SUB_CLIENT),
-  ]);
   const currentTrust = getSelectedTrust();
+  const currentAccount = getSelectedAccount();
+  const scope = subClient ?? DEFAULT_SUB_CLIENT;
+
+  // listAccounts is trust-aware: when a trust is selected we only show that
+  // trust's accounts in the dropdown. When "All trusts" is selected, we
+  // show every account under the sub-client.
+  const [{ data: { user } }, trusts, accounts] = await Promise.all([
+    getSupabaseServer().auth.getUser(),
+    listTrusts(scope),
+    listAccounts(scope, currentTrust),
+  ]);
+
+  // The active account's label, if any, for the sub-header crumb trail.
+  const currentAccountLabel =
+    currentAccount
+      ? accounts.find(a => a.node_id === currentAccount)?.alias ?? currentAccount
+      : null;
 
   return (
     <header className="border-b border-slate-200 bg-white">
@@ -24,8 +42,13 @@ export default async function Header({ subClient }: { subClient: string }) {
         <div>
           <h1 className="text-lg font-semibold text-slate-900">Stonebridge</h1>
           <p className="text-xs text-slate-500">
-            {subClient}
-            {currentTrust ? <> · <span className="text-slate-700">{currentTrust}</span></> : null}
+            {scope}
+            {currentTrust ? (
+              <> · <span className="text-slate-700">{currentTrust}</span></>
+            ) : null}
+            {currentAccountLabel ? (
+              <> · <span className="text-slate-700">{currentAccountLabel}</span></>
+            ) : null}
           </p>
         </div>
         <nav className="flex flex-wrap items-center gap-6 text-sm">
@@ -56,8 +79,9 @@ export default async function Header({ subClient }: { subClient: string }) {
         </nav>
       </div>
       <div className="border-t border-slate-100 bg-slate-50">
-        <div className="mx-auto flex max-w-7xl items-center justify-end px-6 py-2">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-end gap-4 px-6 py-2">
           <TrustFilter trusts={trusts} currentTrust={currentTrust} />
+          <AccountFilter accounts={accounts} currentAccount={currentAccount} />
         </div>
       </div>
     </header>
