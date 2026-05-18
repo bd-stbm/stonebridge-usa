@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { getSupabaseServer } from "./supabase-server";
 
 export const DEFAULT_SUB_CLIENT = "Dyne Family (US)";
 
@@ -33,7 +33,7 @@ export interface Kpis {
 }
 
 export async function listSubClients(): Promise<string[]> {
-  const { data, error } = await supabase()
+  const { data, error } = await getSupabaseServer()
     .from("entity_attribution")
     .select("sub_client_alias")
     .not("sub_client_alias", "is", null);
@@ -45,7 +45,7 @@ export async function listSubClients(): Promise<string[]> {
 export async function getLatestPositions(
   subClient: string = DEFAULT_SUB_CLIENT,
 ): Promise<Position[]> {
-  const { data, error } = await supabase()
+  const { data, error } = await getSupabaseServer()
     .from("v_latest_positions")
     .select(
       "account_alias, trust_alias, asset_name, asset_class, sector, " +
@@ -61,7 +61,7 @@ export async function getLatestPositions(
 export async function getNavSeries(
   subClient: string = DEFAULT_SUB_CLIENT,
 ): Promise<NavPoint[]> {
-  const { data, error } = await supabase()
+  const { data, error } = await getSupabaseServer()
     .from("v_nav_monthly_by_account")
     .select("snapshot_date, nav_reporting")
     .eq("sub_client_alias", subClient);
