@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import type { Transaction } from "@/lib/queries";
-import { money, price as priceFmt } from "@/lib/format";
+import { price as priceFmt } from "@/lib/format";
 
 type SortKey =
   | "transaction_date"
@@ -257,7 +257,7 @@ export default function TransactionsTable({ transactions, range }: Props) {
                       "px-4 py-3 text-right font-medium",
                       amount >= 0 ? "text-slate-900" : "text-rose-600",
                     )}>
-                      {amount !== 0 ? money(amount, t.reporting_ccy ?? "USD") : "—"}
+                      {amount !== 0 ? priceFmt(amount, t.reporting_ccy ?? "USD") : "—"}
                     </td>
                   </tr>
                 );
