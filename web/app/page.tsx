@@ -17,12 +17,28 @@ export const dynamic = "force-dynamic";
 
 export default async function OverviewPage() {
   const trust = getSelectedTrust();
-  const [positions, navSeries, returns] = await Promise.all([
+  const [positions, navSeries] = await Promise.all([
     getLatestPositions(DEFAULT_SUB_CLIENT, trust),
     getNavSeries(DEFAULT_SUB_CLIENT, trust),
-    getPeriodReturns(DEFAULT_SUB_CLIENT, trust),
   ]);
   const kpis = computeKpis(positions);
+
+  // Use the yfinance-refreshed sums as the end-of-period NAV for every return,
+  // and as the 1D start NAV (today's positions × yfinance's previous close).
+  // Falls back to the Masttro snapshot value when yfinance data is missing.
+  const endNav = positions.reduce(
+    (s, p) => s + Number(p.mv_reporting ?? 0),
+    0,
+  );
+  const endNavYesterday = positions.reduce(
+    (s, p) =>
+      s + Number(p.mv_reporting_yesterday ?? p.mv_reporting ?? 0),
+    0,
+  );
+  const returns = await getPeriodReturns(DEFAULT_SUB_CLIENT, trust, {
+    endNav,
+    endNavYesterday,
+  });
 
   const navFromHistory =
     navSeries.length > 0 ? navSeries[navSeries.length - 1].nav : null;

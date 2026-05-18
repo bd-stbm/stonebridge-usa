@@ -23,7 +23,13 @@ export interface Position {
   quantity: number;
   price_local: number | null;
   mv_local: number | null;
+  // mv_reporting is the yfinance-refreshed value when yfinance has the
+  // security; otherwise falls back to Masttro's recorded value. Aliased
+  // server-side from mv_reporting_refreshed in v_positions_refreshed.
   mv_reporting: number;
+  // mv_reporting_yesterday is today's positions priced at yfinance's
+  // previous-close. Used for the 1D return only.
+  mv_reporting_yesterday: number | null;
   reporting_ccy: string;
   unit_cost_local: number | null;
   total_cost_local: number | null;
@@ -70,17 +76,25 @@ export async function getLatestPositions(
   subClient: string = DEFAULT_SUB_CLIENT,
   trust: string | null = null,
 ): Promise<Position[]> {
+  // Query v_positions_refreshed (joins yfinance via pricing_refresh) so the
+  // NAV figures throughout the dashboard reflect today's market price when
+  // yfinance has the security. PostgREST alias `mv_reporting:mv_reporting_refreshed`
+  // renames the refreshed column to mv_reporting so every consumer of Position
+  // (Overview NAV, Holdings table, computeKpis) picks up the refreshed value
+  // without a per-call change. mv_reporting_yesterday is exposed separately
+  // for the 1D return.
   let q = getSupabaseServer()
-    .from("v_latest_positions")
+    .from("v_positions_refreshed")
     .select(
       "account_alias, custodian, trust_alias, asset_name, asset_class, " +
         "security_type, sector, ticker_masttro, isin, local_ccy, quantity, " +
-        "price_local, mv_local, mv_reporting, reporting_ccy, unit_cost_local, " +
+        "price_local, mv_local, mv_reporting:mv_reporting_refreshed, " +
+        "mv_reporting_yesterday, reporting_ccy, unit_cost_local, " +
         "total_cost_local, unrealized_gl_local",
     )
     .eq("sub_client_alias", subClient);
   if (trust) q = q.eq("trust_alias", trust);
-  const { data, error } = await q.order("mv_reporting", {
+  const { data, error } = await q.order("mv_reporting_refreshed", {
     ascending: false,
     nullsFirst: false,
   });
@@ -118,15 +132,26 @@ export async function getNavSeries(
     .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
 }
 
+export interface PeriodReturnOverrides {
+  // Refreshed end NAV (sum of mv_reporting from getLatestPositions). Used in
+  // place of the last point in the historical NAV series, since historical
+  // is Masttro-only and may be a day or two behind market.
+  endNav?: number;
+  // Today's positions valued at yfinance previous-close. Used as the start
+  // NAV for the 1D return so it reflects pure intraday price movement.
+  endNavYesterday?: number;
+}
+
 export async function getPeriodReturns(
   subClient: string = DEFAULT_SUB_CLIENT,
   trust: string | null = null,
+  overrides: PeriodReturnOverrides = {},
 ): Promise<Record<PeriodKey, PeriodReturn>> {
   // NAV series across the whole history (we re-use this for the chart anyway,
   // so cost is one row-set per request — small).
   const navs = await getNavSeries(subClient, trust);
   if (navs.length === 0) {
-    return computeAllPeriodReturns([], []);
+    return computeAllPeriodReturns([], [], overrides);
   }
 
   // Pull external flows back to the earliest NAV date. PostgREST filters
@@ -151,7 +176,7 @@ export async function getPeriodReturns(
     nav: n.nav,
   }));
 
-  return computeAllPeriodReturns(navPoints, flows);
+  return computeAllPeriodReturns(navPoints, flows, overrides);
 }
 
 export function computeKpis(positions: Position[]): Kpis {

@@ -73,12 +73,25 @@ function nearestOnOrBefore(
   return candidate;
 }
 
+export interface ReturnOverrides {
+  // Refreshed end NAV (yfinance-priced sum of today's positions). Replaces
+  // the last point in the Masttro NAV series so end-of-period values are
+  // current to today's market rather than yesterday's settled close.
+  endNav?: number;
+  // Today's positions valued at yfinance previous-close. Used as the start
+  // for the 1D return so it reflects pure intraday market movement (no
+  // flow adjustment — 1-day-overnight flows are usually nil and including
+  // them double-counts since both sides hold the same position quantity).
+  endNavYesterday?: number;
+}
+
 export function computePeriodReturn(
   navs: NavPoint[],
   flows: Flow[],
   period: PeriodKey,
+  overrides: ReturnOverrides = {},
 ): PeriodReturn {
-  if (navs.length === 0) {
+  if (navs.length === 0 && overrides.endNav == null) {
     return {
       period,
       start_date: null,
@@ -91,13 +104,41 @@ export function computePeriodReturn(
     };
   }
 
-  const end = navs[navs.length - 1];
-  const endDate = end.date;
-  const target = toISO(shiftDate(new Date(end.date + "T00:00:00Z"), period));
+  const lastNav = navs[navs.length - 1];
+  // End date is the latest Masttro snapshot date — that's the date our
+  // historical NAV / position quantities are anchored to, even though the
+  // price layer on top of it is refreshed.
+  const endDate = lastNav?.date ?? toISO(new Date());
+  const endNav = overrides.endNav ?? lastNav.nav;
+
+  // 1D special-case: use overrides.endNavYesterday as the start NAV. This
+  // sidesteps the Masttro snapshot grid entirely — no flow adjustment
+  // since both sides are today's quantities at different prices.
+  if (period === "1d" && overrides.endNavYesterday != null) {
+    const startDateGuess = (() => {
+      const d = new Date(endDate + "T00:00:00Z");
+      d.setUTCDate(d.getUTCDate() - 1);
+      return toISO(d);
+    })();
+    const startNav = overrides.endNavYesterday;
+    const gain = endNav - startNav;
+    return {
+      period,
+      start_date: startDateGuess,
+      end_date: endDate,
+      start_nav: startNav,
+      end_nav: endNav,
+      flows: 0,
+      gain,
+      return_pct: startNav !== 0 ? gain / startNav : null,
+    };
+  }
+
+  const target = toISO(shiftDate(new Date(endDate + "T00:00:00Z"), period));
 
   // Clamp target to the earliest snapshot if the period reaches before our
   // data window (e.g. 1Y when only 9 months of history exist).
-  const earliest = navs[0].date;
+  const earliest = navs[0]?.date ?? endDate;
   const clampedTarget = target < earliest ? earliest : target;
 
   const start = nearestOnOrBefore(navs, clampedTarget);
@@ -107,7 +148,7 @@ export function computePeriodReturn(
       start_date: start?.date ?? null,
       end_date: endDate,
       start_nav: start?.nav ?? null,
-      end_nav: end.nav,
+      end_nav: endNav,
       flows: 0,
       gain: null,
       return_pct: null,
@@ -120,7 +161,7 @@ export function computePeriodReturn(
     if (f.date > start.date && f.date <= endDate) periodFlows += f.amount;
   }
 
-  const gain = end.nav - start.nav - periodFlows;
+  const gain = endNav - start.nav - periodFlows;
   const denom = start.nav + 0.5 * periodFlows;
   const return_pct = denom !== 0 ? gain / denom : null;
 
@@ -129,7 +170,7 @@ export function computePeriodReturn(
     start_date: start.date,
     end_date: endDate,
     start_nav: start.nav,
-    end_nav: end.nav,
+    end_nav: endNav,
     flows: periodFlows,
     gain,
     return_pct,
@@ -139,8 +180,9 @@ export function computePeriodReturn(
 export function computeAllPeriodReturns(
   navs: NavPoint[],
   flows: Flow[],
+  overrides: ReturnOverrides = {},
 ): Record<PeriodKey, PeriodReturn> {
   return Object.fromEntries(
-    PERIODS.map(p => [p.key, computePeriodReturn(navs, flows, p.key)]),
+    PERIODS.map(p => [p.key, computePeriodReturn(navs, flows, p.key, overrides)]),
   ) as Record<PeriodKey, PeriodReturn>;
 }
