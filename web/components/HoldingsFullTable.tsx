@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import clsx from "clsx";
 import type { Position } from "@/lib/queries";
-import { money, pct } from "@/lib/format";
+import { money, pct, price as priceFmt } from "@/lib/format";
 
 type SortKey =
   | "asset_name"
@@ -286,7 +286,7 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
                     </td>
                     <td className="px-4 py-3 text-right text-slate-700">
                       {price != null
-                        ? money(price, p.local_ccy ?? reportingCcy)
+                        ? priceFmt(price, p.local_ccy ?? reportingCcy)
                         : "—"}
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-slate-900">

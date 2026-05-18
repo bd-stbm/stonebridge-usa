@@ -1,5 +1,5 @@
 import { Position } from "@/lib/queries";
-import { money, pct } from "@/lib/format";
+import { money, pct, price } from "@/lib/format";
 
 interface Props {
   positions: Position[];
@@ -39,8 +39,8 @@ export default function HoldingsTable({ positions, limit = 10 }: Props) {
                 </td>
                 <td className="px-4 py-3 text-right text-slate-700">
                   {(() => {
-                    const price = p.yf_price ?? p.price_local;
-                    return price != null ? money(price, "USD") : "—";
+                    const px = p.yf_price ?? p.price_local;
+                    return px != null ? price(px, "USD") : "—";
                   })()}
                 </td>
                 <td className="px-4 py-3 text-right font-medium text-slate-900">
