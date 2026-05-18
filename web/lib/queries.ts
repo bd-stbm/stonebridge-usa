@@ -248,6 +248,87 @@ export async function getPeriodReturns(
   return computeAllPeriodReturns(navPoints, flows, overrides);
 }
 
+export async function getNavSeriesByTrust(
+  subClient: string = DEFAULT_SUB_CLIENT,
+  trust: string | null = null,
+  account: string | null = null,
+): Promise<Record<string, NavPoint[]>> {
+  // Per-(snapshot_date, account) NAV rows from v_nav_monthly_by_account,
+  // aggregated by trust_alias in JS for the Performance page's matrix.
+  // When global trust filter is set we get one trust back; when null we get
+  // all trusts under the sub-client.
+  let q = getSupabaseServer()
+    .from("v_nav_monthly_by_account")
+    .select("snapshot_date, trust_alias, nav_reporting")
+    .eq("sub_client_alias", subClient)
+    .not("trust_alias", "is", null);
+  if (trust) q = q.eq("trust_alias", trust);
+  if (account) q = q.eq("account_node_id", account);
+  const { data, error } = await q;
+  if (error) throw error;
+
+  const rows = (data ?? []) as unknown as Array<{
+    snapshot_date: string;
+    trust_alias: string;
+    nav_reporting: number | null;
+  }>;
+
+  const byTrust: Map<string, Map<string, number>> = new Map();
+  for (const r of rows) {
+    let dateMap = byTrust.get(r.trust_alias);
+    if (!dateMap) {
+      dateMap = new Map();
+      byTrust.set(r.trust_alias, dateMap);
+    }
+    dateMap.set(
+      r.snapshot_date,
+      (dateMap.get(r.snapshot_date) ?? 0) + Number(r.nav_reporting ?? 0),
+    );
+  }
+
+  const result: Record<string, NavPoint[]> = {};
+  for (const [trustAlias, dateMap] of byTrust.entries()) {
+    result[trustAlias] = Array.from(dateMap.entries())
+      .map(([snapshot_date, nav]) => ({ snapshot_date, nav }))
+      .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+  }
+  return result;
+}
+
+export async function getFlowsByTrust(
+  subClient: string = DEFAULT_SUB_CLIENT,
+  trust: string | null = null,
+  account: string | null = null,
+  fromDate: string = "2020-01-01",
+): Promise<Record<string, Flow[]>> {
+  let q = getSupabaseServer()
+    .from("v_external_flows")
+    .select("transaction_date, net_amount_reporting, trust_alias")
+    .eq("sub_client_alias", subClient)
+    .gte("transaction_date", fromDate)
+    .not("trust_alias", "is", null);
+  if (trust) q = q.eq("trust_alias", trust);
+  if (account) q = q.eq("account_node_id", account);
+  const { data, error } = await q;
+  if (error) throw error;
+
+  const rows = (data ?? []) as unknown as Array<{
+    transaction_date: string;
+    net_amount_reporting: number | null;
+    trust_alias: string;
+  }>;
+
+  const out: Record<string, Flow[]> = {};
+  for (const r of rows) {
+    if (!out[r.trust_alias]) out[r.trust_alias] = [];
+    out[r.trust_alias].push({
+      date: r.transaction_date,
+      amount: Number(r.net_amount_reporting ?? 0),
+    });
+  }
+  return out;
+}
+
 export async function getNavSeriesByAssetClass(
   subClient: string = DEFAULT_SUB_CLIENT,
   trust: string | null = null,
