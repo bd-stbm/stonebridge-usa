@@ -1,7 +1,11 @@
 "use server";
 
 import { cookies } from "next/headers";
-import { ACCOUNT_COOKIE, TRUST_COOKIE } from "./trust-filter";
+import {
+  ACCOUNT_COOKIE,
+  BENCHMARK_COOKIE,
+  TRUST_COOKIE,
+} from "./trust-filter";
 
 const ONE_YEAR = 60 * 60 * 24 * 365;
 
@@ -33,6 +37,19 @@ export async function setAccountFilter(account: string): Promise<void> {
     return;
   }
   c.set(ACCOUNT_COOKIE, account, {
+    path: "/",
+    sameSite: "lax",
+    maxAge: ONE_YEAR,
+  });
+}
+
+export async function setBenchmark(ticker: string): Promise<void> {
+  const c = cookies();
+  if (!ticker) {
+    c.delete(BENCHMARK_COOKIE);
+    return;
+  }
+  c.set(BENCHMARK_COOKIE, ticker, {
     path: "/",
     sameSite: "lax",
     maxAge: ONE_YEAR,

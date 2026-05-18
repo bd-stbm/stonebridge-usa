@@ -2,6 +2,7 @@ import { getSupabaseServer } from "./supabase-server";
 import {
   computeAllPeriodReturns,
   type Flow,
+  type IndexPricePoint,
   type NavPoint as DietzNavPoint,
   type PeriodKey,
   type PeriodReturn,
@@ -245,6 +246,42 @@ export async function getPeriodReturns(
   }));
 
   return computeAllPeriodReturns(navPoints, flows, overrides);
+}
+
+// ---------------------------------------------------------------------------
+// Index benchmarks — for the Returns-vs-index comparison on the Returns tile.
+// ---------------------------------------------------------------------------
+
+export interface IndexOption {
+  ticker: string;
+  name: string;
+}
+
+export async function listIndices(): Promise<IndexOption[]> {
+  const { data, error } = await getSupabaseServer()
+    .from("index_definition")
+    .select("ticker, name")
+    .order("ticker");
+  if (error) throw error;
+  return (data ?? []) as unknown as IndexOption[];
+}
+
+export async function getIndexPrices(
+  ticker: string,
+  fromDate: string,
+): Promise<IndexPricePoint[]> {
+  const { data, error } = await getSupabaseServer()
+    .from("index_price_history")
+    .select("price_date, close")
+    .eq("ticker", ticker)
+    .gte("price_date", fromDate)
+    .order("price_date", { ascending: true });
+  if (error) throw error;
+  const rows = (data ?? []) as unknown as Array<{
+    price_date: string;
+    close: number | string;
+  }>;
+  return rows.map(r => ({ date: r.price_date, price: Number(r.close) }));
 }
 
 export function computeKpis(positions: Position[]): Kpis {

@@ -188,3 +188,56 @@ export function computeAllPeriodReturns(
     PERIODS.map(p => [p.key, computePeriodReturn(navs, flows, p.key, overrides)]),
   ) as Record<PeriodKey, PeriodReturn>;
 }
+
+// ---------------------------------------------------------------------------
+// Index benchmark returns
+// ---------------------------------------------------------------------------
+
+export interface IndexPricePoint {
+  date: string;
+  price: number;
+}
+
+export function computeIndexReturn(
+  prices: IndexPricePoint[],
+  startDate: string | null,
+  endDate: string | null,
+  period?: PeriodKey,
+): number | null {
+  if (prices.length === 0) return null;
+
+  // 1D is a "previous-close vs latest-close" comparison, not a snapshot-grid
+  // calc. Use the last two available prices regardless of the portfolio's
+  // reported period dates (which can land on weekends or holidays).
+  if (period === "1d") {
+    if (prices.length < 2) return null;
+    const last = prices[prices.length - 1];
+    const prev = prices[prices.length - 2];
+    return prev.price !== 0 ? last.price / prev.price - 1 : null;
+  }
+
+  if (!startDate || !endDate) return null;
+
+  // Walk forwards taking the latest price on/before each target date.
+  let startPrice: number | null = null;
+  let endPrice: number | null = null;
+  for (const p of prices) {
+    if (p.date <= startDate) startPrice = p.price;
+    if (p.date <= endDate) endPrice = p.price;
+    if (p.date > endDate) break;
+  }
+  if (startPrice == null || endPrice == null || startPrice === 0) return null;
+  return endPrice / startPrice - 1;
+}
+
+export function computeIndexReturnsForAllPeriods(
+  prices: IndexPricePoint[],
+  returns: Record<PeriodKey, PeriodReturn>,
+): Record<PeriodKey, number | null> {
+  return Object.fromEntries(
+    PERIODS.map(p => [
+      p.key,
+      computeIndexReturn(prices, returns[p.key].start_date, returns[p.key].end_date, p.key),
+    ]),
+  ) as Record<PeriodKey, number | null>;
+}

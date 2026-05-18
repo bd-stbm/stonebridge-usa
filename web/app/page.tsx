@@ -6,11 +6,18 @@ import NavChart from "@/components/NavChart";
 import {
   DEFAULT_SUB_CLIENT,
   computeKpis,
+  getIndexPrices,
   getLatestPositions,
   getNavSeries,
   getPeriodReturns,
+  listIndices,
 } from "@/lib/queries";
-import { getSelectedAccount, getSelectedTrust } from "@/lib/trust-filter";
+import {
+  getSelectedAccount,
+  getSelectedBenchmark,
+  getSelectedTrust,
+} from "@/lib/trust-filter";
+import { computeIndexReturnsForAllPeriods } from "@/lib/returns";
 import { money } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -18,9 +25,11 @@ export const dynamic = "force-dynamic";
 export default async function OverviewPage() {
   const trust = getSelectedTrust();
   const account = getSelectedAccount();
-  const [positions, navSeries] = await Promise.all([
+  const benchmarkTicker = getSelectedBenchmark();
+  const [positions, navSeries, indices] = await Promise.all([
     getLatestPositions(DEFAULT_SUB_CLIENT, trust, account),
     getNavSeries(DEFAULT_SUB_CLIENT, trust, account),
+    listIndices(),
   ]);
   const kpis = computeKpis(positions);
 
@@ -40,6 +49,19 @@ export default async function OverviewPage() {
     endNav,
     endNavYesterday,
   });
+
+  // Pull benchmark price history starting from the earliest portfolio snapshot
+  // (or 5y back if there's no portfolio data yet). Then compute index returns
+  // over the same period dates the portfolio returns used.
+  const benchmarkFromDate =
+    navSeries[0]?.snapshot_date ??
+    new Date(Date.UTC(new Date().getUTCFullYear() - 5, 0, 1))
+      .toISOString()
+      .slice(0, 10);
+  const indexPrices = await getIndexPrices(benchmarkTicker, benchmarkFromDate);
+  const indexReturns = computeIndexReturnsForAllPeriods(indexPrices, returns);
+  const benchmark =
+    indices.find(i => i.ticker === benchmarkTicker) ?? indices[0] ?? null;
 
   // Bump the chart's rightmost point to the refreshed NAV so the line lands
   // on the same number as the NAV tile (which is yfinance-priced). If the
@@ -67,7 +89,12 @@ export default async function OverviewPage() {
       <main className="mx-auto max-w-7xl px-6 py-8">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
           <KpiTile label="NAV (latest)" value={money(kpis.nav, kpis.reporting_ccy)} />
-          <ReturnsTile returns={returns} />
+          <ReturnsTile
+            returns={returns}
+            indexReturns={indexReturns}
+            benchmark={benchmark}
+            availableBenchmarks={indices}
+          />
           <KpiTile label="Trusts" value={kpis.trusts.toString()} hint={`${kpis.positions} positions`} />
           <KpiTile
             label="Unrealized G/L"

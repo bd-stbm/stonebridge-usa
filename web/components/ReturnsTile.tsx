@@ -1,18 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import { PERIODS, type PeriodKey, type PeriodReturn } from "@/lib/returns";
+import type { IndexOption } from "@/lib/queries";
+import { setBenchmark } from "@/lib/actions";
 import { pct } from "@/lib/format";
 
 interface Props {
   returns: Record<PeriodKey, PeriodReturn>;
+  indexReturns?: Record<PeriodKey, number | null>;
+  benchmark?: IndexOption | null;
+  availableBenchmarks?: IndexOption[];
   defaultPeriod?: PeriodKey;
 }
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
-  // yyyy-mm-dd → "DD MMM YYYY"
   const d = new Date(iso + "T00:00:00Z");
   return d.toLocaleDateString("en-AU", {
     day: "2-digit",
@@ -24,10 +29,16 @@ function formatDate(iso: string | null): string {
 
 export default function ReturnsTile({
   returns,
+  indexReturns,
+  benchmark = null,
+  availableBenchmarks = [],
   defaultPeriod = "ytd",
 }: Props) {
   const [selected, setSelected] = useState<PeriodKey>(defaultPeriod);
+  const [pending, startTransition] = useTransition();
+  const router = useRouter();
   const r = returns[selected];
+  const ir = indexReturns?.[selected] ?? null;
 
   const tone =
     r.return_pct == null
@@ -35,6 +46,11 @@ export default function ReturnsTile({
       : r.return_pct >= 0
         ? "positive"
         : "negative";
+
+  // Delta is in percentage *points* (not relative). Outperformance = green.
+  const delta = r.return_pct != null && ir != null ? r.return_pct - ir : null;
+  const deltaTone =
+    delta == null ? "default" : delta >= 0 ? "positive" : "negative";
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-5">
@@ -75,6 +91,46 @@ export default function ReturnsTile({
           ? `${formatDate(r.start_date)} → ${formatDate(r.end_date)}`
           : "Insufficient history"}
       </div>
+      {benchmark && availableBenchmarks.length > 0 ? (
+        <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-2 text-xs">
+          <span className="text-slate-500">
+            vs <span className="font-medium text-slate-700">{benchmark.name}</span>:{" "}
+            <span className="text-slate-700">
+              {ir != null ? pct(ir, 2) : "—"}
+            </span>
+            {delta != null ? (
+              <span
+                className={clsx(
+                  "ml-2 font-medium",
+                  deltaTone === "positive" && "text-emerald-600",
+                  deltaTone === "negative" && "text-rose-600",
+                )}
+              >
+                ({delta >= 0 ? "+" : ""}
+                {(delta * 100).toFixed(2)} pp)
+              </span>
+            ) : null}
+          </span>
+          <select
+            value={benchmark.ticker}
+            disabled={pending}
+            onChange={e => {
+              const value = e.target.value;
+              startTransition(async () => {
+                await setBenchmark(value);
+                router.refresh();
+              });
+            }}
+            className="rounded border border-slate-200 bg-white px-1 py-0.5 text-xs text-slate-700 disabled:opacity-60"
+          >
+            {availableBenchmarks.map(b => (
+              <option key={b.ticker} value={b.ticker}>
+                {b.ticker}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
     </div>
   );
 }
