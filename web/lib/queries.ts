@@ -1,4 +1,11 @@
 import { getSupabaseServer } from "./supabase-server";
+import {
+  computeAllPeriodReturns,
+  type Flow,
+  type NavPoint as DietzNavPoint,
+  type PeriodKey,
+  type PeriodReturn,
+} from "./returns";
 
 export const DEFAULT_SUB_CLIENT = "Dyne Family (US)";
 
@@ -109,6 +116,42 @@ export async function getNavSeries(
   return Array.from(byDate.entries())
     .map(([snapshot_date, nav]) => ({ snapshot_date, nav }))
     .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+}
+
+export async function getPeriodReturns(
+  subClient: string = DEFAULT_SUB_CLIENT,
+  trust: string | null = null,
+): Promise<Record<PeriodKey, PeriodReturn>> {
+  // NAV series across the whole history (we re-use this for the chart anyway,
+  // so cost is one row-set per request — small).
+  const navs = await getNavSeries(subClient, trust);
+  if (navs.length === 0) {
+    return computeAllPeriodReturns([], []);
+  }
+
+  // Pull external flows back to the earliest NAV date. PostgREST filters
+  // can't see our app-level cookie; we filter by date/scope here.
+  const earliest = navs[0].snapshot_date;
+  let q = getSupabaseServer()
+    .from("v_external_flows")
+    .select("transaction_date, net_amount_reporting, trust_alias, sub_client_alias")
+    .eq("sub_client_alias", subClient)
+    .gte("transaction_date", earliest);
+  if (trust) q = q.eq("trust_alias", trust);
+  const { data, error } = await q;
+  if (error) throw error;
+
+  const flows: Flow[] = (data ?? []).map(r => ({
+    date: (r as { transaction_date: string }).transaction_date,
+    amount: Number((r as { net_amount_reporting: number | null }).net_amount_reporting ?? 0),
+  }));
+
+  const navPoints: DietzNavPoint[] = navs.map(n => ({
+    date: n.snapshot_date,
+    nav: n.nav,
+  }));
+
+  return computeAllPeriodReturns(navPoints, flows);
 }
 
 export function computeKpis(positions: Position[]): Kpis {

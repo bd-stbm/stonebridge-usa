@@ -1,5 +1,6 @@
 import Header from "@/components/Header";
 import KpiTile from "@/components/KpiTile";
+import ReturnsTile from "@/components/ReturnsTile";
 import HoldingsTable from "@/components/HoldingsTable";
 import NavChart from "@/components/NavChart";
 import {
@@ -7,25 +8,22 @@ import {
   computeKpis,
   getLatestPositions,
   getNavSeries,
+  getPeriodReturns,
 } from "@/lib/queries";
 import { getSelectedTrust } from "@/lib/trust-filter";
-import { money, pct } from "@/lib/format";
+import { money } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 export default async function OverviewPage() {
   const trust = getSelectedTrust();
-  const [positions, navSeries] = await Promise.all([
+  const [positions, navSeries, returns] = await Promise.all([
     getLatestPositions(DEFAULT_SUB_CLIENT, trust),
     getNavSeries(DEFAULT_SUB_CLIENT, trust),
+    getPeriodReturns(DEFAULT_SUB_CLIENT, trust),
   ]);
   const kpis = computeKpis(positions);
 
-  const periodReturn =
-    navSeries.length >= 2 && navSeries[0].nav > 0
-      ? (navSeries[navSeries.length - 1].nav - navSeries[0].nav) /
-        navSeries[0].nav
-      : null;
   const navFromHistory =
     navSeries.length > 0 ? navSeries[navSeries.length - 1].nav : null;
 
@@ -35,22 +33,7 @@ export default async function OverviewPage() {
       <main className="mx-auto max-w-7xl px-6 py-8">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
           <KpiTile label="NAV (latest)" value={money(kpis.nav, kpis.reporting_ccy)} />
-          <KpiTile
-            label="Return (period)"
-            value={periodReturn != null ? pct(periodReturn, 2) : "—"}
-            hint={
-              navSeries.length >= 2
-                ? `${navSeries[0].snapshot_date.slice(0, 7)} → ${navSeries[navSeries.length - 1].snapshot_date.slice(0, 7)}`
-                : undefined
-            }
-            tone={
-              periodReturn == null
-                ? "default"
-                : periodReturn >= 0
-                  ? "positive"
-                  : "negative"
-            }
-          />
+          <ReturnsTile returns={returns} />
           <KpiTile label="Trusts" value={kpis.trusts.toString()} hint={`${kpis.positions} positions`} />
           <KpiTile
             label="Unrealized G/L"
