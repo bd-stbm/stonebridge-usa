@@ -38,7 +38,6 @@ export default async function Header({ subClient }: { subClient: string }) {
               {t.label}
             </Link>
           ))}
-          <TrustFilter trusts={trusts} currentTrust={currentTrust} />
           {user ? (
             <form
               action="/auth/signout"
@@ -55,6 +54,11 @@ export default async function Header({ subClient }: { subClient: string }) {
             </form>
           ) : null}
         </nav>
+      </div>
+      <div className="border-t border-slate-100 bg-slate-50">
+        <div className="mx-auto flex max-w-7xl items-center justify-end px-6 py-2">
+          <TrustFilter trusts={trusts} currentTrust={currentTrust} />
+        </div>
       </div>
     </header>
   );
