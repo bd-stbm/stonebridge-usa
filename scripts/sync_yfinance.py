@@ -21,6 +21,7 @@ warnings.filterwarnings("ignore")
 
 from tracker.db import connect, log_sync
 from tracker.enrich import _fetch_yf, _openfigi_resolve, normalize_ticker
+from tracker.sync_indices import sync_indices_recent
 from tracker.sync_supabase import insert_pricing_refresh, set_security_ticker_yf
 
 
@@ -120,6 +121,17 @@ def main() -> int:
         log_sync(conn, "pricing_refresh", "all",
                  f"unique={len(unique)} priced={len(prices)} written={n}", n)
         print(f"  wrote {n} pricing_refresh rows")
+
+        # Append the latest closes for benchmark indices used by the dashboard
+        # Returns tile. Uses a generous 10-day window so a missed run recovers
+        # automatically.
+        print("syncing index benchmarks...")
+        idx_stats = sync_indices_recent(conn, days_back=10)
+        idx_total = sum(idx_stats.values())
+        log_sync(conn, "index_sync", "all",
+                 ", ".join(f"{k}={v}" for k, v in idx_stats.items()),
+                 idx_total)
+        print(f"  index rows written: {idx_total}")
 
     finally:
         conn.close()

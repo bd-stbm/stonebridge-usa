@@ -198,6 +198,32 @@ CREATE INDEX IF NOT EXISTS pricing_security_date_idx
     ON public.pricing_refresh (security_id, refresh_date);
 
 -- =============================================================================
+-- index_definition / index_price_history — yfinance benchmark series
+-- =============================================================================
+-- Indices used for portfolio-vs-benchmark comparison on the Returns tile.
+-- Separate from pricing_refresh (which is keyed to held securities and
+-- retains only the last two prices) — benchmarks need years of daily history.
+
+CREATE TABLE IF NOT EXISTS public.index_definition (
+    ticker     TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    ccy        CHAR(3) NOT NULL DEFAULT 'USD',
+    notes      TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.index_price_history (
+    ticker     TEXT NOT NULL REFERENCES public.index_definition(ticker) ON DELETE CASCADE,
+    price_date DATE NOT NULL,
+    close      NUMERIC(20, 8) NOT NULL,
+    source     TEXT NOT NULL DEFAULT 'yfinance',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (ticker, price_date)
+);
+CREATE INDEX IF NOT EXISTS index_price_date_idx
+    ON public.index_price_history (price_date);
+
+-- =============================================================================
 -- sync_log — audit trail of ingestion / refresh runs
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS public.sync_log (
@@ -364,6 +390,8 @@ ALTER TABLE public.position_snapshot   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.transaction_log     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.pricing_refresh     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sync_log            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.index_definition    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.index_price_history ENABLE ROW LEVEL SECURITY;
 
 -- Example "allow all reads for authenticated users" policy template
 -- (uncomment and customise per table once your auth model is decided):
