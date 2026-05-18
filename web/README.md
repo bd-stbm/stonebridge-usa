@@ -37,5 +37,5 @@ The Overview page queries two Supabase views shipped in
 - `v_latest_positions` - latest snapshot per account-security
 - `v_nav_monthly_by_account` - monthly NAV trajectory per account
 
-Both are scoped to `sub_client_alias = 'Dyne Family US'` for v1. Wire a
+Both are scoped to `sub_client_alias = 'Dyne Family (US)'` for v1. Wire a
 scope selector when adding more families.

@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 
-export const DEFAULT_SUB_CLIENT = "Dyne Family US";
+export const DEFAULT_SUB_CLIENT = "Dyne Family (US)";
 
 export interface Position {
   account_alias: string;
