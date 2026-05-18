@@ -1,10 +1,10 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import type { Transaction } from "@/lib/queries";
-import { price as priceFmt } from "@/lib/format";
+import { money, price as priceFmt } from "@/lib/format";
 
 type SortKey =
   | "transaction_date"
@@ -29,12 +29,47 @@ const COLUMNS: {
   { key: "net_amount_reporting", label: "Amount", align: "right" },
 ];
 
-const RANGES: { value: string; label: string }[] = [
-  { value: "12m", label: "Last 12 months" },
+const PRESETS: { value: string; label: string }[] = [
+  { value: "1m", label: "1M" },
+  { value: "3m", label: "3M" },
+  { value: "6m", label: "6M" },
+  { value: "12m", label: "12M" },
   { value: "ytd", label: "YTD" },
-  { value: "5y", label: "Last 5 years" },
+  { value: "2y", label: "2Y" },
+  { value: "5y", label: "5Y" },
   { value: "all", label: "All" },
 ];
+
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function computePresetFrom(preset: string): string {
+  const today = new Date();
+  const y = today.getUTCFullYear();
+  const m = today.getUTCMonth();
+  const d = today.getUTCDate();
+  switch (preset) {
+    case "1m":
+      return isoDate(new Date(Date.UTC(y, m - 1, d)));
+    case "3m":
+      return isoDate(new Date(Date.UTC(y, m - 3, d)));
+    case "6m":
+      return isoDate(new Date(Date.UTC(y, m - 6, d)));
+    case "12m":
+      return isoDate(new Date(Date.UTC(y - 1, m, d)));
+    case "ytd":
+      return `${y}-01-01`;
+    case "2y":
+      return isoDate(new Date(Date.UTC(y - 2, m, d)));
+    case "5y":
+      return isoDate(new Date(Date.UTC(y - 5, m, d)));
+    case "all":
+      return "2000-01-01";
+    default:
+      return isoDate(new Date(Date.UTC(y - 1, m, d)));
+  }
+}
 
 function num(v: unknown): number {
   if (v == null) return 0;
@@ -53,12 +88,12 @@ function compareValues(a: unknown, b: unknown, dir: SortDir): number {
 
 interface Props {
   transactions: Transaction[];
-  range: string;
+  from: string;
+  to: string;
 }
 
-export default function TransactionsTable({ transactions, range }: Props) {
+export default function TransactionsTable({ transactions, from, to }: Props) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
 
   const [search, setSearch] = useState("");
@@ -104,16 +139,26 @@ export default function TransactionsTable({ transactions, range }: Props) {
       setSortDir(d => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortKey(key);
-      setSortDir(key === "quantity" || key === "net_amount_reporting" || key === "transaction_date" ? "desc" : "asc");
+      setSortDir(
+        key === "quantity" || key === "net_amount_reporting" || key === "transaction_date"
+          ? "desc"
+          : "asc",
+      );
     }
   };
 
-  const handleRangeChange = (newRange: string) => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("range", newRange);
+  const pushRange = (newFrom: string, newTo: string) => {
+    const params = new URLSearchParams();
+    params.set("from", newFrom);
+    params.set("to", newTo);
     startTransition(() => {
       router.push(`/transactions?${params.toString()}`);
     });
+  };
+
+  const applyPreset = (preset: string) => {
+    const today = new Date();
+    pushRange(computePresetFrom(preset), isoDate(today));
   };
 
   const resetFilters = () => {
@@ -148,22 +193,46 @@ export default function TransactionsTable({ transactions, range }: Props) {
             >
               <option value="">All ({typeOptions.length})</option>
               {typeOptions.map(t => (
-                <option key={t} value={t}>{t}</option>
+                <option key={t} value={t}>
+                  {t}
+                </option>
               ))}
             </select>
           </div>
           <div className="md:col-span-3">
-            <label className="block text-xs font-medium text-slate-500">Range</label>
-            <select
-              value={range}
+            <label className="block text-xs font-medium text-slate-500">From</label>
+            <input
+              type="date"
+              value={from}
               disabled={pending}
-              onChange={e => handleRangeChange(e.target.value)}
+              onChange={e => pushRange(e.target.value, to)}
               className="mt-1 block w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:opacity-60"
-            >
-              {RANGES.map(r => (
-                <option key={r.value} value={r.value}>{r.label}</option>
+            />
+          </div>
+          <div className="md:col-span-3 md:col-start-9">
+            <label className="block text-xs font-medium text-slate-500">To</label>
+            <input
+              type="date"
+              value={to}
+              disabled={pending}
+              onChange={e => pushRange(from, e.target.value)}
+              className="mt-1 block w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:opacity-60"
+            />
+          </div>
+          <div className="md:col-span-12">
+            <div className="mt-1 flex flex-wrap gap-1">
+              {PRESETS.map(p => (
+                <button
+                  key={p.value}
+                  type="button"
+                  disabled={pending}
+                  onClick={() => applyPreset(p.value)}
+                  className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                >
+                  {p.label}
+                </button>
               ))}
-            </select>
+            </div>
           </div>
         </div>
         <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
@@ -198,10 +267,12 @@ export default function TransactionsTable({ transactions, range }: Props) {
                     )}
                     onClick={() => handleSort(col.key)}
                   >
-                    <span className={clsx(
-                      "inline-flex items-center gap-1",
-                      col.align === "right" && "justify-end",
-                    )}>
+                    <span
+                      className={clsx(
+                        "inline-flex items-center gap-1",
+                        col.align === "right" && "justify-end",
+                      )}
+                    >
                       {col.label}
                       {isSorted ? (
                         <span className="text-slate-400">
@@ -228,16 +299,18 @@ export default function TransactionsTable({ transactions, range }: Props) {
                 const isFlow = t.is_external_flow;
                 return (
                   <tr key={t.transaction_id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap align-top">
                       {t.transaction_date ?? "—"}
                     </td>
-                    <td className="px-4 py-3">
-                      <span className={clsx(
-                        "rounded-full px-2 py-0.5 text-xs font-medium",
-                        isFlow
-                          ? "bg-brand-tint text-brand-dark"
-                          : "bg-slate-100 text-slate-700",
-                      )}>
+                    <td className="px-4 py-3 align-top">
+                      <span
+                        className={clsx(
+                          "rounded-full px-2 py-0.5 text-xs font-medium",
+                          isFlow
+                            ? "bg-brand-tint text-brand-dark"
+                            : "bg-slate-100 text-slate-700",
+                        )}
+                      >
                         {t.transaction_type_clean ?? "—"}
                       </span>
                     </td>
@@ -258,16 +331,18 @@ export default function TransactionsTable({ transactions, range }: Props) {
                         </div>
                       ) : null}
                     </td>
-                    <td className="px-4 py-3 text-slate-600">
+                    <td className="px-4 py-3 text-slate-600 align-top">
                       {t.account_alias ?? "—"}
                     </td>
-                    <td className="px-4 py-3 text-right text-slate-700">
+                    <td className="px-4 py-3 text-right text-slate-700 align-top">
                       {qty !== 0 ? qty.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "—"}
                     </td>
-                    <td className={clsx(
-                      "px-4 py-3 text-right font-medium",
-                      amount >= 0 ? "text-slate-900" : "text-rose-600",
-                    )}>
+                    <td
+                      className={clsx(
+                        "px-4 py-3 text-right font-medium align-top",
+                        amount >= 0 ? "text-slate-900" : "text-rose-600",
+                      )}
+                    >
                       {amount !== 0 ? priceFmt(amount, t.reporting_ccy ?? "USD") : "—"}
                     </td>
                   </tr>
