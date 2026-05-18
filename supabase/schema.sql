@@ -344,11 +344,11 @@ SELECT
     t.account_node_id,
     e.alias AS account_alias,
     ea.trust_alias,
-    ea.sub_client_alias,
-    ea.sub_client_node_id,
     t.transaction_type_clean AS transaction_type,
     t.net_amount_reporting,
-    t.reporting_ccy
+    t.reporting_ccy,
+    ea.sub_client_alias,
+    ea.sub_client_node_id
 FROM public.transaction_log t
 JOIN public.entity e ON t.account_node_id = e.node_id
 LEFT JOIN public.entity_attribution ea ON t.account_node_id = ea.node_id
