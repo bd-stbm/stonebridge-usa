@@ -40,6 +40,23 @@ export default async function OverviewPage() {
     endNavYesterday,
   });
 
+  // Bump the chart's rightmost point to the refreshed NAV so the line lands
+  // on the same number as the NAV tile (which is yfinance-priced). If the
+  // latest Masttro snapshot is before today, append a new point for today;
+  // if it's today already, overwrite that point's value.
+  const today = new Date().toISOString().slice(0, 10);
+  const chartData = (() => {
+    if (navSeries.length === 0) return navSeries;
+    const last = navSeries[navSeries.length - 1];
+    if (last.snapshot_date < today) {
+      return [...navSeries, { snapshot_date: today, nav: endNav }];
+    }
+    return [
+      ...navSeries.slice(0, -1),
+      { snapshot_date: last.snapshot_date, nav: endNav },
+    ];
+  })();
+
   const navFromHistory =
     navSeries.length > 0 ? navSeries[navSeries.length - 1].nav : null;
 
@@ -59,7 +76,7 @@ export default async function OverviewPage() {
         </div>
 
         <section className="mt-8">
-          <NavChart data={navSeries} />
+          <NavChart data={chartData} />
         </section>
 
         <section className="mt-8">

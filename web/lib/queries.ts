@@ -183,9 +183,13 @@ export function computeKpis(positions: Position[]): Kpis {
   const trusts = new Set(
     positions.map(p => p.trust_alias).filter((t): t is string => !!t),
   );
-  const nav = positions.reduce((s, p) => s + (p.mv_reporting ?? 0), 0);
+  // Number() coercion is mandatory — Supabase serialises NUMERIC as strings
+  // when values risk overflowing JS precision, and "0" + "123" is "0123",
+  // not 123. Without this, the sum silently produces a concatenated string
+  // that Intl.NumberFormat displays as $NaN once it gets large enough.
+  const nav = positions.reduce((s, p) => s + Number(p.mv_reporting ?? 0), 0);
   const unrealized_gl = positions.reduce(
-    (s, p) => s + (p.unrealized_gl_local ?? 0),
+    (s, p) => s + Number(p.unrealized_gl_local ?? 0),
     0,
   );
   return {
