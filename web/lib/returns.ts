@@ -4,11 +4,11 @@
 // periods, matches what the Python pipeline produces, and skips the per-flow
 // time-weighting that true modified Dietz uses.
 
-export type PeriodKey = "1d" | "1w" | "ytd" | "6m" | "1y";
+export type PeriodKey = "1d" | "mtd" | "ytd" | "6m" | "1y";
 
 export const PERIODS: { key: PeriodKey; label: string }[] = [
   { key: "1d", label: "1D" },
-  { key: "1w", label: "1W" },
+  { key: "mtd", label: "MTD" },
   { key: "ytd", label: "YTD" },
   { key: "6m", label: "6M" },
   { key: "1y", label: "1Y" },
@@ -39,19 +39,21 @@ function shiftDate(end: Date, period: PeriodKey): Date {
   const d = new Date(end);
   switch (period) {
     case "1d":
-      d.setDate(d.getDate() - 1);
+      d.setUTCDate(d.getUTCDate() - 1);
       return d;
-    case "1w":
-      d.setDate(d.getDate() - 7);
-      return d;
+    case "mtd":
+      // Last day of the previous month. nearestOnOrBefore then picks
+      // whatever snapshot we actually have at or before that date —
+      // typically the prior month-end.
+      return new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 0));
     case "ytd":
       // Dec 31 of the previous year.
       return new Date(Date.UTC(end.getUTCFullYear() - 1, 11, 31));
     case "6m":
-      d.setMonth(d.getMonth() - 6);
+      d.setUTCMonth(d.getUTCMonth() - 6);
       return d;
     case "1y":
-      d.setFullYear(d.getFullYear() - 1);
+      d.setUTCFullYear(d.getUTCFullYear() - 1);
       return d;
   }
 }
