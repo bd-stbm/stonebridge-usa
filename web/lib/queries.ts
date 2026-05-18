@@ -62,8 +62,14 @@ export async function listSubClients(): Promise<string[]> {
 export async function listTrusts(
   subClient: string = DEFAULT_SUB_CLIENT,
 ): Promise<string[]> {
+  // Query v_latest_positions rather than entity_attribution so we only
+  // surface trusts that actually hold positions in the latest snapshot.
+  // entity_attribution includes every node whose ancestor name matches
+  // the substring "trust", which catches LLCs like "Deltrust LLC" and
+  // other non-position-holding shells. Real fix is at sync-level, but
+  // this filter keeps the dropdown clean either way.
   const { data, error } = await getSupabaseServer()
-    .from("entity_attribution")
+    .from("v_latest_positions")
     .select("trust_alias")
     .eq("sub_client_alias", subClient)
     .not("trust_alias", "is", null);
