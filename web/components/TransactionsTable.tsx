@@ -241,10 +241,21 @@ export default function TransactionsTable({ transactions, range }: Props) {
                         {t.transaction_type_clean ?? "—"}
                       </span>
                     </td>
-                    <td className="px-4 py-3 font-medium text-slate-900">
-                      {t.asset_name ?? (t.comments ? <span className="italic text-slate-500">{t.comments}</span> : "—")}
-                      {t.ticker_masttro ? (
-                        <span className="ml-1 text-xs text-slate-400">{t.ticker_masttro}</span>
+                    <td className="px-4 py-3 align-top">
+                      <div className="font-medium text-slate-900">
+                        {t.asset_name ?? (t.comments ? (
+                          <span className="italic text-slate-500">{t.comments}</span>
+                        ) : "—")}
+                        {t.ticker_masttro ? (
+                          <span className="ml-1 text-xs font-normal text-slate-400">
+                            {t.ticker_masttro}
+                          </span>
+                        ) : null}
+                      </div>
+                      {t.asset_name && t.comments ? (
+                        <div className="mt-0.5 max-w-md text-xs italic text-slate-500">
+                          {t.comments}
+                        </div>
                       ) : null}
                     </td>
                     <td className="px-4 py-3 text-slate-600">
