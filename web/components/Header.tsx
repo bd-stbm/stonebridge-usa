@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { getSupabaseServer } from "@/lib/supabase-server";
 import {
@@ -21,27 +22,29 @@ export default async function Header({ subClient }: { subClient: string }) {
   const currentAccount = getSelectedAccount();
   const scope = subClient ?? DEFAULT_SUB_CLIENT;
 
-  // listAccounts is trust-aware: when a trust is selected we only show that
-  // trust's accounts in the dropdown. When "All trusts" is selected, we
-  // show every account under the sub-client.
   const [{ data: { user } }, trusts, accounts] = await Promise.all([
     getSupabaseServer().auth.getUser(),
     listTrusts(scope),
     listAccounts(scope, currentTrust),
   ]);
 
-  // The active account's label, if any, for the sub-header crumb trail.
-  const currentAccountLabel =
-    currentAccount
-      ? accounts.find(a => a.node_id === currentAccount)?.alias ?? currentAccount
-      : null;
+  const currentAccountLabel = currentAccount
+    ? accounts.find(a => a.node_id === currentAccount)?.alias ?? currentAccount
+    : null;
 
   return (
     <header className="border-b border-slate-200 bg-white">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-4">
-        <div>
-          <h1 className="text-lg font-semibold text-slate-900">Stonebridge</h1>
-          <p className="text-xs text-slate-500">
+        <Link href="/" className="flex items-center gap-3">
+          <Image
+            src="/stonebridge-logo.png"
+            alt="Stonebridge"
+            width={140}
+            height={48}
+            className="h-10 w-auto"
+            priority
+          />
+          <span className="hidden text-xs text-slate-500 sm:inline">
             {scope}
             {currentTrust ? (
               <> · <span className="text-slate-700">{currentTrust}</span></>
@@ -49,14 +52,14 @@ export default async function Header({ subClient }: { subClient: string }) {
             {currentAccountLabel ? (
               <> · <span className="text-slate-700">{currentAccountLabel}</span></>
             ) : null}
-          </p>
-        </div>
+          </span>
+        </Link>
         <nav className="flex flex-wrap items-center gap-6 text-sm">
           {TABS.map(t => (
             <Link
               key={t.href}
               href={t.href}
-              className="text-slate-600 hover:text-slate-900"
+              className="text-slate-600 hover:text-brand"
             >
               {t.label}
             </Link>

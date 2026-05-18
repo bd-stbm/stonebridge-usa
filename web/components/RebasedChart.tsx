@@ -54,7 +54,7 @@ export default function RebasedChart({ data, benchmarkLabel }: Props) {
               name="Portfolio"
               type="monotone"
               dataKey="portfolio"
-              stroke="#2563eb"
+              stroke="#7c3aed"
               strokeWidth={2}
               dot={false}
               connectNulls

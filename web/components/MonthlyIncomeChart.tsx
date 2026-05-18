@@ -52,7 +52,7 @@ export default function MonthlyIncomeChart({ data, reportingCcy }: Props) {
             />
             <Legend wrapperStyle={{ fontSize: 12 }} />
             <Bar dataKey="Dividends" stackId="income" fill="#059669" />
-            <Bar dataKey="Interest" stackId="income" fill="#2563eb" />
+            <Bar dataKey="Interest" stackId="income" fill="#7c3aed" />
             <Bar dataKey="Other" stackId="income" fill="#94a3b8" />
           </BarChart>
         </ResponsiveContainer>

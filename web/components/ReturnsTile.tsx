@@ -93,7 +93,7 @@ export default function ReturnsTile({
                 className={clsx(
                   "rounded px-2 py-0.5 text-xs font-medium",
                   p.key === selected
-                    ? "bg-slate-900 text-white"
+                    ? "bg-brand text-white"
                     : "text-slate-500 hover:bg-slate-100",
                 )}
               >

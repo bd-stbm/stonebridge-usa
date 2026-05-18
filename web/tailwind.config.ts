@@ -1,5 +1,8 @@
 import type { Config } from "tailwindcss";
 
+// Brand colours sampled from /public/stonebridge-logo.png — vivid violet
+// for primary surfaces (active controls, portfolio line, etc.); darker
+// variant for hover; lighter for tint backgrounds.
 const config: Config = {
   content: [
     "./app/**/*.{ts,tsx}",
@@ -9,12 +12,12 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        accent: {
-          50: "#eff6ff",
-          400: "#60a5fa",
-          500: "#3b82f6",
-          600: "#2563eb",
-          700: "#1d4ed8",
+        brand: {
+          DEFAULT: "#8b5cf6",
+          dark: "#7c3aed",
+          light: "#a78bfa",
+          tint: "#ede9fe",
+          navy: "#1e1b4b",
         },
       },
     },

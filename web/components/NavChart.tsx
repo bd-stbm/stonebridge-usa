@@ -21,8 +21,8 @@ export default function NavChart({ data }: { data: NavPoint[] }) {
           <AreaChart data={data} margin={{ top: 10, right: 20, bottom: 0, left: 0 }}>
             <defs>
               <linearGradient id="navFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.4} />
-                <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
+                <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.4} />
+                <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0} />
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -43,7 +43,7 @@ export default function NavChart({ data }: { data: NavPoint[] }) {
             <Area
               type="monotone"
               dataKey="nav"
-              stroke="#2563eb"
+              stroke="#7c3aed"
               strokeWidth={2}
               fill="url(#navFill)"
             />
