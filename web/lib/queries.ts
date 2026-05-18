@@ -8,6 +8,14 @@ import {
   type PeriodReturn,
 } from "./returns";
 
+// Supabase enforces a project-wide `db-max-rows` cap (default 1000) that
+// silently truncates responses. For our single-tenant dashboard we always
+// want the full set, so every query that could plausibly exceed 1000 rows
+// asks explicitly. Project setting also needs to allow at least this much
+// (Settings -> API -> Max rows). Without that, this limit is still bounded
+// at the server's cap.
+const LIMIT_LARGE = 100000;
+
 export const DEFAULT_SUB_CLIENT = "Dyne Family (US)";
 
 export interface Position {
@@ -60,7 +68,8 @@ export async function listSubClients(): Promise<string[]> {
   const { data, error } = await getSupabaseServer()
     .from("entity_attribution")
     .select("sub_client_alias")
-    .not("sub_client_alias", "is", null);
+    .not("sub_client_alias", "is", null)
+    .limit(LIMIT_LARGE);
   if (error) throw error;
   const rows = (data ?? []) as unknown as Array<{ sub_client_alias: string }>;
   return Array.from(new Set(rows.map(r => r.sub_client_alias))).sort();
@@ -85,7 +94,7 @@ export async function listAccounts(
     .select("account_node_id, account_alias, custodian, trust_alias")
     .eq("sub_client_alias", subClient);
   if (trust) q = q.eq("trust_alias", trust);
-  const { data, error } = await q;
+  const { data, error } = await q.limit(LIMIT_LARGE);
   if (error) throw error;
   const rows = (data ?? []) as unknown as Array<{
     account_node_id: string;
@@ -121,7 +130,8 @@ export async function listTrusts(
     .from("v_latest_positions")
     .select("trust_alias")
     .eq("sub_client_alias", subClient)
-    .not("trust_alias", "is", null);
+    .not("trust_alias", "is", null)
+    .limit(LIMIT_LARGE);
   if (error) throw error;
   const rows = (data ?? []) as unknown as Array<{ trust_alias: string }>;
   return Array.from(new Set(rows.map(r => r.trust_alias))).sort();
@@ -152,10 +162,9 @@ export async function getLatestPositions(
     .eq("sub_client_alias", subClient);
   if (trust) q = q.eq("trust_alias", trust);
   if (account) q = q.eq("account_node_id", account);
-  const { data, error } = await q.order("mv_reporting_refreshed", {
-    ascending: false,
-    nullsFirst: false,
-  });
+  const { data, error } = await q
+    .order("mv_reporting_refreshed", { ascending: false, nullsFirst: false })
+    .limit(LIMIT_LARGE);
   if (error) throw error;
   return (data ?? []) as unknown as Position[];
 }
@@ -171,7 +180,7 @@ export async function getNavSeries(
     .eq("sub_client_alias", subClient);
   if (trust) q = q.eq("trust_alias", trust);
   if (account) q = q.eq("account_node_id", account);
-  const { data, error } = await q;
+  const { data, error } = await q.limit(LIMIT_LARGE);
   if (error) throw error;
 
   // Aggregate per snapshot_date across accounts in JS — PostgREST doesn't
@@ -228,7 +237,7 @@ export async function getPeriodReturns(
     .gte("transaction_date", earliest);
   if (trust) q = q.eq("trust_alias", trust);
   if (account) q = q.eq("account_node_id", account);
-  const { data, error } = await q;
+  const { data, error } = await q.limit(LIMIT_LARGE);
   if (error) throw error;
 
   const flowRows = (data ?? []) as unknown as Array<{
@@ -264,7 +273,7 @@ export async function getNavSeriesByTrust(
     .not("trust_alias", "is", null);
   if (trust) q = q.eq("trust_alias", trust);
   if (account) q = q.eq("account_node_id", account);
-  const { data, error } = await q;
+  const { data, error } = await q.limit(LIMIT_LARGE);
   if (error) throw error;
 
   const rows = (data ?? []) as unknown as Array<{
@@ -309,7 +318,7 @@ export async function getFlowsByTrust(
     .not("trust_alias", "is", null);
   if (trust) q = q.eq("trust_alias", trust);
   if (account) q = q.eq("account_node_id", account);
-  const { data, error } = await q;
+  const { data, error } = await q.limit(LIMIT_LARGE);
   if (error) throw error;
 
   const rows = (data ?? []) as unknown as Array<{
@@ -343,7 +352,7 @@ export async function getNavSeriesByAssetClass(
     .eq("sub_client_alias", subClient);
   if (trust) q = q.eq("trust_alias", trust);
   if (account) q = q.eq("account_node_id", account);
-  const { data, error } = await q;
+  const { data, error } = await q.limit(LIMIT_LARGE);
   if (error) throw error;
 
   const rows = (data ?? []) as unknown as Array<{
@@ -401,7 +410,8 @@ export async function getIndexPrices(
     .select("price_date, close")
     .eq("ticker", ticker)
     .gte("price_date", fromDate)
-    .order("price_date", { ascending: true });
+    .order("price_date", { ascending: true })
+    .limit(LIMIT_LARGE);
   if (error) throw error;
   const rows = (data ?? []) as unknown as Array<{
     price_date: string;
