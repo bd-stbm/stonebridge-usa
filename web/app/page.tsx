@@ -9,6 +9,7 @@ import {
   getIndexPrices,
   getLatestPositions,
   getNavSeries,
+  getNavSeriesByAssetClass,
   getPeriodReturns,
   listIndices,
 } from "@/lib/queries";
@@ -17,7 +18,12 @@ import {
   getSelectedBenchmark,
   getSelectedTrust,
 } from "@/lib/trust-filter";
-import { computeIndexReturnsForAllPeriods } from "@/lib/returns";
+import {
+  computeAllPeriodReturns,
+  computeIndexReturnsForAllPeriods,
+  type PeriodKey,
+  type PeriodReturn,
+} from "@/lib/returns";
 import { money } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -26,10 +32,11 @@ export default async function OverviewPage() {
   const trust = getSelectedTrust();
   const account = getSelectedAccount();
   const benchmarkTicker = getSelectedBenchmark();
-  const [positions, navSeries, indices] = await Promise.all([
+  const [positions, navSeries, indices, navByClass] = await Promise.all([
     getLatestPositions(DEFAULT_SUB_CLIENT, trust, account),
     getNavSeries(DEFAULT_SUB_CLIENT, trust, account),
     listIndices(),
+    getNavSeriesByAssetClass(DEFAULT_SUB_CLIENT, trust, account),
   ]);
   const kpis = computeKpis(positions);
 
@@ -63,6 +70,45 @@ export default async function OverviewPage() {
   const benchmark =
     indices.find(i => i.ticker === benchmarkTicker) ?? indices[0] ?? null;
 
+  // Per-asset-class returns. Group today's positions by asset_class so the
+  // end NAV uses the same refreshed (yfinance) values, then run modified
+  // Dietz with flows = [] since trust-level deposits aren't asset-typed
+  // (so the math is a clean price-only return on the held positions).
+  const positionsByClass = new Map<string, typeof positions>();
+  for (const p of positions) {
+    const ac = p.asset_class ?? "Unclassified";
+    const arr = positionsByClass.get(ac) ?? [];
+    arr.push(p);
+    positionsByClass.set(ac, arr);
+  }
+  const returnsByAssetClass: Record<string, Record<PeriodKey, PeriodReturn>> = {};
+  for (const [ac, navs] of Object.entries(navByClass)) {
+    const classPositions = positionsByClass.get(ac) ?? [];
+    const acEndNav = classPositions.reduce(
+      (s, p) => s + Number(p.mv_reporting ?? 0),
+      0,
+    );
+    const acEndNavYesterday = classPositions.reduce(
+      (s, p) => s + Number(p.mv_reporting_yesterday ?? p.mv_reporting ?? 0),
+      0,
+    );
+    returnsByAssetClass[ac] = computeAllPeriodReturns(
+      navs.map(n => ({ date: n.snapshot_date, nav: n.nav })),
+      [],
+      { endNav: acEndNav, endNavYesterday: acEndNavYesterday },
+    );
+  }
+  const indexReturnsByAssetClass: Record<
+    string,
+    Record<PeriodKey, number | null>
+  > = {};
+  for (const ac of Object.keys(returnsByAssetClass)) {
+    indexReturnsByAssetClass[ac] = computeIndexReturnsForAllPeriods(
+      indexPrices,
+      returnsByAssetClass[ac],
+    );
+  }
+
   // Bump the chart's rightmost point to the refreshed NAV so the line lands
   // on the same number as the NAV tile (which is yfinance-priced). If the
   // latest Masttro snapshot is before today, append a new point for today;
@@ -95,6 +141,8 @@ export default async function OverviewPage() {
               indexReturns={indexReturns}
               benchmark={benchmark}
               availableBenchmarks={indices}
+              returnsByAssetClass={returnsByAssetClass}
+              indexReturnsByAssetClass={indexReturnsByAssetClass}
             />
           </div>
           <KpiTile

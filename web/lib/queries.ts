@@ -248,6 +248,51 @@ export async function getPeriodReturns(
   return computeAllPeriodReturns(navPoints, flows, overrides);
 }
 
+export async function getNavSeriesByAssetClass(
+  subClient: string = DEFAULT_SUB_CLIENT,
+  trust: string | null = null,
+  account: string | null = null,
+): Promise<Record<string, NavPoint[]>> {
+  // Per-(snapshot_date, account, asset_class) rows from the view. We
+  // aggregate across accounts in JS, keyed by asset_class, to get one NAV
+  // series per class for the Returns tile's split-by-class dropdown.
+  let q = getSupabaseServer()
+    .from("v_nav_monthly_by_asset_class")
+    .select("snapshot_date, asset_class, nav_reporting")
+    .eq("sub_client_alias", subClient);
+  if (trust) q = q.eq("trust_alias", trust);
+  if (account) q = q.eq("account_node_id", account);
+  const { data, error } = await q;
+  if (error) throw error;
+
+  const rows = (data ?? []) as unknown as Array<{
+    snapshot_date: string;
+    asset_class: string;
+    nav_reporting: number | null;
+  }>;
+
+  const byClass: Map<string, Map<string, number>> = new Map();
+  for (const r of rows) {
+    let dateMap = byClass.get(r.asset_class);
+    if (!dateMap) {
+      dateMap = new Map();
+      byClass.set(r.asset_class, dateMap);
+    }
+    dateMap.set(
+      r.snapshot_date,
+      (dateMap.get(r.snapshot_date) ?? 0) + Number(r.nav_reporting ?? 0),
+    );
+  }
+
+  const result: Record<string, NavPoint[]> = {};
+  for (const [ac, dateMap] of byClass.entries()) {
+    result[ac] = Array.from(dateMap.entries())
+      .map(([snapshot_date, nav]) => ({ snapshot_date, nav }))
+      .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+  }
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // Index benchmarks — for the Returns-vs-index comparison on the Returns tile.
 // ---------------------------------------------------------------------------
