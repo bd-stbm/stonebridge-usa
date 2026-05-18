@@ -8,14 +8,16 @@ import {
   getLatestPositions,
   getNavSeries,
 } from "@/lib/queries";
+import { getSelectedTrust } from "@/lib/trust-filter";
 import { money, pct } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 export default async function OverviewPage() {
+  const trust = getSelectedTrust();
   const [positions, navSeries] = await Promise.all([
-    getLatestPositions(DEFAULT_SUB_CLIENT),
-    getNavSeries(DEFAULT_SUB_CLIENT),
+    getLatestPositions(DEFAULT_SUB_CLIENT, trust),
+    getNavSeries(DEFAULT_SUB_CLIENT, trust),
   ]);
   const kpis = computeKpis(positions);
 

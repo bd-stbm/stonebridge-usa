@@ -1,5 +1,8 @@
 import Link from "next/link";
 import { getSupabaseServer } from "@/lib/supabase-server";
+import { DEFAULT_SUB_CLIENT, listTrusts } from "@/lib/queries";
+import { getSelectedTrust } from "@/lib/trust-filter";
+import TrustFilter from "@/components/TrustFilter";
 
 const TABS = [
   { href: "/", label: "Overview" },
@@ -9,18 +12,23 @@ const TABS = [
 ];
 
 export default async function Header({ subClient }: { subClient: string }) {
-  const {
-    data: { user },
-  } = await getSupabaseServer().auth.getUser();
+  const [{ data: { user } }, trusts] = await Promise.all([
+    getSupabaseServer().auth.getUser(),
+    listTrusts(subClient ?? DEFAULT_SUB_CLIENT),
+  ]);
+  const currentTrust = getSelectedTrust();
 
   return (
     <header className="border-b border-slate-200 bg-white">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-4">
         <div>
           <h1 className="text-lg font-semibold text-slate-900">Stonebridge</h1>
-          <p className="text-xs text-slate-500">{subClient}</p>
+          <p className="text-xs text-slate-500">
+            {subClient}
+            {currentTrust ? <> · <span className="text-slate-700">{currentTrust}</span></> : null}
+          </p>
         </div>
-        <nav className="flex items-center gap-6 text-sm">
+        <nav className="flex flex-wrap items-center gap-6 text-sm">
           {TABS.map(t => (
             <Link
               key={t.href}
@@ -30,6 +38,7 @@ export default async function Header({ subClient }: { subClient: string }) {
               {t.label}
             </Link>
           ))}
+          <TrustFilter trusts={trusts} currentTrust={currentTrust} />
           {user ? (
             <form
               action="/auth/signout"

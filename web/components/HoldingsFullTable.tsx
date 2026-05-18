@@ -36,6 +36,15 @@ const COLUMNS: {
   { key: "unrealized_gl_local", label: "Unrealized G/L", align: "right" },
 ];
 
+// Postgres NUMERIC columns come back from supabase-js as strings (to
+// preserve precision). Coerce before formatting so .toLocaleString picks up
+// the number-format options instead of falling through to Object's no-op.
+function num(v: unknown): number {
+  if (v == null) return 0;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function uniqueValues(positions: Position[], key: keyof Position): string[] {
   const set = new Set<string>();
   for (const p of positions) {
@@ -61,18 +70,16 @@ interface Props {
 
 export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
   const [search, setSearch] = useState("");
-  const [trust, setTrust] = useState("");
   const [assetClass, setAssetClass] = useState("");
   const [custodian, setCustodian] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("mv_reporting");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const totalNav = useMemo(
-    () => positions.reduce((s, p) => s + (p.mv_reporting ?? 0), 0),
+    () => positions.reduce((s, p) => s + num(p.mv_reporting), 0),
     [positions],
   );
 
-  const trustOptions = useMemo(() => uniqueValues(positions, "trust_alias"), [positions]);
   const assetClassOptions = useMemo(
     () => uniqueValues(positions, "asset_class"),
     [positions],
@@ -85,7 +92,6 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return positions.filter(p => {
-      if (trust && p.trust_alias !== trust) return false;
       if (assetClass && p.asset_class !== assetClass) return false;
       if (custodian && p.custodian !== custodian) return false;
       if (!q) return true;
@@ -95,15 +101,26 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [positions, search, trust, assetClass, custodian]);
+  }, [positions, search, assetClass, custodian]);
 
   const sorted = useMemo(() => {
     const arr = filtered.slice();
     arr.sort((a, b) => {
       if (sortKey === "weight") {
-        const wa = totalNav > 0 ? (a.mv_reporting ?? 0) / totalNav : 0;
-        const wb = totalNav > 0 ? (b.mv_reporting ?? 0) / totalNav : 0;
+        const wa = totalNav > 0 ? num(a.mv_reporting) / totalNav : 0;
+        const wb = totalNav > 0 ? num(b.mv_reporting) / totalNav : 0;
         return compareValues(wa, wb, sortDir);
+      }
+      // For numeric columns we coerce so sort respects numeric order even
+      // when supabase-js returned them as strings.
+      const numericKeys: SortKey[] = [
+        "quantity",
+        "price_local",
+        "mv_reporting",
+        "unrealized_gl_local",
+      ];
+      if (numericKeys.includes(sortKey)) {
+        return compareValues(num(a[sortKey]), num(b[sortKey]), sortDir);
       }
       return compareValues(a[sortKey], b[sortKey], sortDir);
     });
@@ -111,11 +128,11 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
   }, [filtered, sortKey, sortDir, totalNav]);
 
   const filteredNav = useMemo(
-    () => filtered.reduce((s, p) => s + (p.mv_reporting ?? 0), 0),
+    () => filtered.reduce((s, p) => s + num(p.mv_reporting), 0),
     [filtered],
   );
   const filteredGl = useMemo(
-    () => filtered.reduce((s, p) => s + (p.unrealized_gl_local ?? 0), 0),
+    () => filtered.reduce((s, p) => s + num(p.unrealized_gl_local), 0),
     [filtered],
   );
 
@@ -131,18 +148,17 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
 
   const resetFilters = () => {
     setSearch("");
-    setTrust("");
     setAssetClass("");
     setCustodian("");
   };
 
-  const hasActiveFilter = search || trust || assetClass || custodian;
+  const hasActiveFilter = search || assetClass || custodian;
 
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-slate-200 bg-white p-4">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-          <div className="md:col-span-4">
+          <div className="md:col-span-6">
             <label className="block text-xs font-medium text-slate-500">
               Search
             </label>
@@ -153,19 +169,6 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
               placeholder="Asset, ticker, ISIN…"
               className="mt-1 block w-full rounded border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
             />
-          </div>
-          <div className="md:col-span-3">
-            <label className="block text-xs font-medium text-slate-500">Trust</label>
-            <select
-              value={trust}
-              onChange={e => setTrust(e.target.value)}
-              className="mt-1 block w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
-            >
-              <option value="">All ({trustOptions.length})</option>
-              {trustOptions.map(t => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
           </div>
           <div className="md:col-span-3">
             <label className="block text-xs font-medium text-slate-500">Asset class</label>
@@ -180,7 +183,7 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
               ))}
             </select>
           </div>
-          <div className="md:col-span-2">
+          <div className="md:col-span-3">
             <label className="block text-xs font-medium text-slate-500">Custodian</label>
             <select
               value={custodian}
@@ -254,8 +257,11 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
               </tr>
             ) : (
               sorted.map((p, i) => {
-                const weight = totalNav > 0 ? (p.mv_reporting ?? 0) / totalNav : 0;
-                const gl = p.unrealized_gl_local ?? 0;
+                const qty = num(p.quantity);
+                const price = p.price_local != null ? num(p.price_local) : null;
+                const mvr = num(p.mv_reporting);
+                const gl = num(p.unrealized_gl_local);
+                const weight = totalNav > 0 ? mvr / totalNav : 0;
                 return (
                   <tr key={i} className="hover:bg-slate-50">
                     <td className="px-4 py-3 font-medium text-slate-900">
@@ -271,17 +277,15 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
                     <td className="px-4 py-3 text-slate-600">{p.trust_alias ?? "—"}</td>
                     <td className="px-4 py-3 text-slate-600">{p.custodian ?? "—"}</td>
                     <td className="px-4 py-3 text-right text-slate-700">
-                      {(p.quantity ?? 0).toLocaleString(undefined, {
-                        maximumFractionDigits: 4,
-                      })}
+                      {qty.toLocaleString(undefined, { maximumFractionDigits: 4 })}
                     </td>
                     <td className="px-4 py-3 text-right text-slate-700">
-                      {p.price_local != null
-                        ? money(p.price_local, p.local_ccy ?? reportingCcy)
+                      {price != null
+                        ? money(price, p.local_ccy ?? reportingCcy)
                         : "—"}
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-slate-900">
-                      {money(p.mv_reporting, reportingCcy)}
+                      {money(mvr, reportingCcy)}
                     </td>
                     <td className="px-4 py-3 text-right text-slate-700">{pct(weight, 2)}</td>
                     <td

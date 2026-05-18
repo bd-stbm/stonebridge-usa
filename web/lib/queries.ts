@@ -46,10 +46,24 @@ export async function listSubClients(): Promise<string[]> {
   return Array.from(new Set(rows.map(r => r.sub_client_alias))).sort();
 }
 
+export async function listTrusts(
+  subClient: string = DEFAULT_SUB_CLIENT,
+): Promise<string[]> {
+  const { data, error } = await getSupabaseServer()
+    .from("entity_attribution")
+    .select("trust_alias")
+    .eq("sub_client_alias", subClient)
+    .not("trust_alias", "is", null);
+  if (error) throw error;
+  const rows = (data ?? []) as unknown as Array<{ trust_alias: string }>;
+  return Array.from(new Set(rows.map(r => r.trust_alias))).sort();
+}
+
 export async function getLatestPositions(
   subClient: string = DEFAULT_SUB_CLIENT,
+  trust: string | null = null,
 ): Promise<Position[]> {
-  const { data, error } = await getSupabaseServer()
+  let q = getSupabaseServer()
     .from("v_latest_positions")
     .select(
       "account_alias, custodian, trust_alias, asset_name, asset_class, " +
@@ -57,19 +71,26 @@ export async function getLatestPositions(
         "price_local, mv_local, mv_reporting, reporting_ccy, unit_cost_local, " +
         "total_cost_local, unrealized_gl_local",
     )
-    .eq("sub_client_alias", subClient)
-    .order("mv_reporting", { ascending: false, nullsFirst: false });
+    .eq("sub_client_alias", subClient);
+  if (trust) q = q.eq("trust_alias", trust);
+  const { data, error } = await q.order("mv_reporting", {
+    ascending: false,
+    nullsFirst: false,
+  });
   if (error) throw error;
   return (data ?? []) as unknown as Position[];
 }
 
 export async function getNavSeries(
   subClient: string = DEFAULT_SUB_CLIENT,
+  trust: string | null = null,
 ): Promise<NavPoint[]> {
-  const { data, error } = await getSupabaseServer()
+  let q = getSupabaseServer()
     .from("v_nav_monthly_by_account")
     .select("snapshot_date, nav_reporting")
     .eq("sub_client_alias", subClient);
+  if (trust) q = q.eq("trust_alias", trust);
+  const { data, error } = await q;
   if (error) throw error;
 
   // Aggregate per snapshot_date across accounts in JS — PostgREST doesn't

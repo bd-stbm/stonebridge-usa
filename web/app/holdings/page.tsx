@@ -6,12 +6,14 @@ import {
   computeKpis,
   getLatestPositions,
 } from "@/lib/queries";
+import { getSelectedTrust } from "@/lib/trust-filter";
 import { money } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 export default async function HoldingsPage() {
-  const positions = await getLatestPositions(DEFAULT_SUB_CLIENT);
+  const trust = getSelectedTrust();
+  const positions = await getLatestPositions(DEFAULT_SUB_CLIENT, trust);
   const kpis = computeKpis(positions);
   const assetClasses = new Set(
     positions
