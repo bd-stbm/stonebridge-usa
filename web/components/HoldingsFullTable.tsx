@@ -258,7 +258,12 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
             ) : (
               sorted.map((p, i) => {
                 const qty = num(p.quantity);
-                const price = p.price_local != null ? num(p.price_local) : null;
+                // Prefer yfinance price when present so the Price column
+                // ties out with the Value column (which is mv_reporting,
+                // already refreshed). Falls back to Masttro for securities
+                // yfinance doesn't cover.
+                const priceRaw = p.yf_price ?? p.price_local;
+                const price = priceRaw != null ? num(priceRaw) : null;
                 const mvr = num(p.mv_reporting);
                 const gl = num(p.unrealized_gl_local);
                 const weight = totalNav > 0 ? mvr / totalNav : 0;

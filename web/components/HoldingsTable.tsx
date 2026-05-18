@@ -38,7 +38,10 @@ export default function HoldingsTable({ positions, limit = 10 }: Props) {
                   {(p.quantity ?? 0).toLocaleString()}
                 </td>
                 <td className="px-4 py-3 text-right text-slate-700">
-                  {p.price_local != null ? money(p.price_local, "USD") : "—"}
+                  {(() => {
+                    const price = p.yf_price ?? p.price_local;
+                    return price != null ? money(price, "USD") : "—";
+                  })()}
                 </td>
                 <td className="px-4 py-3 text-right font-medium text-slate-900">
                   {money(p.mv_reporting, "USD")}

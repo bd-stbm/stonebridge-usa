@@ -21,7 +21,13 @@ export interface Position {
   isin: string | null;
   local_ccy: string | null;
   quantity: number;
+  // price_local is Masttro's last recorded price for the security.
   price_local: number | null;
+  // yf_price is yfinance's latest price (same security currency). When
+  // present, it's the right number to display alongside mv_reporting
+  // (which uses the same refreshed price). Null for any security yfinance
+  // doesn't cover.
+  yf_price: number | null;
   mv_local: number | null;
   // mv_reporting is the yfinance-refreshed value when yfinance has the
   // security; otherwise falls back to Masttro's recorded value. Aliased
@@ -137,9 +143,10 @@ export async function getLatestPositions(
     .select(
       "account_alias, custodian, trust_alias, asset_name, asset_class, " +
         "security_type, sector, ticker_masttro, isin, local_ccy, quantity, " +
-        "price_local, mv_local, mv_reporting:mv_reporting_refreshed, " +
-        "mv_reporting_yesterday, reporting_ccy, unit_cost_local, " +
-        "total_cost_local, unrealized_gl_local",
+        "price_local, yf_price, mv_local, " +
+        "mv_reporting:mv_reporting_refreshed, mv_reporting_yesterday, " +
+        "reporting_ccy, unit_cost_local, total_cost_local, " +
+        "unrealized_gl_local",
     )
     .eq("sub_client_alias", subClient);
   if (trust) q = q.eq("trust_alias", trust);
