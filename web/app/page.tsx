@@ -89,13 +89,14 @@ export default async function OverviewPage() {
       <main className="mx-auto max-w-7xl px-6 py-8">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
           <KpiTile label="NAV (latest)" value={money(kpis.nav, kpis.reporting_ccy)} />
-          <ReturnsTile
-            returns={returns}
-            indexReturns={indexReturns}
-            benchmark={benchmark}
-            availableBenchmarks={indices}
-          />
-          <KpiTile label="Trusts" value={kpis.trusts.toString()} hint={`${kpis.positions} positions`} />
+          <div className="md:col-span-2">
+            <ReturnsTile
+              returns={returns}
+              indexReturns={indexReturns}
+              benchmark={benchmark}
+              availableBenchmarks={indices}
+            />
+          </div>
           <KpiTile
             label="Unrealized G/L"
             value={money(kpis.unrealized_gl, kpis.reporting_ccy)}

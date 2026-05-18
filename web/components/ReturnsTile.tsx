@@ -47,33 +47,57 @@ export default function ReturnsTile({
         ? "positive"
         : "negative";
 
-  // Delta is in percentage *points* (not relative). Outperformance = green.
+  // Delta in percentage *points* (not relative ratio).
   const delta = r.return_pct != null && ir != null ? r.return_pct - ir : null;
   const deltaTone =
     delta == null ? "default" : delta >= 0 ? "positive" : "negative";
 
+  const showBenchmark = benchmark && availableBenchmarks.length > 0;
+
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-5">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-xs uppercase tracking-wide text-slate-500">
           Return
         </div>
-        <div className="flex gap-1">
-          {PERIODS.map(p => (
-            <button
-              key={p.key}
-              type="button"
-              onClick={() => setSelected(p.key)}
-              className={clsx(
-                "rounded px-2 py-0.5 text-xs font-medium",
-                p.key === selected
-                  ? "bg-slate-900 text-white"
-                  : "text-slate-500 hover:bg-slate-100",
-              )}
+        <div className="flex items-center gap-3">
+          <div className="flex gap-1">
+            {PERIODS.map(p => (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => setSelected(p.key)}
+                className={clsx(
+                  "rounded px-2 py-0.5 text-xs font-medium",
+                  p.key === selected
+                    ? "bg-slate-900 text-white"
+                    : "text-slate-500 hover:bg-slate-100",
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          {showBenchmark ? (
+            <select
+              value={benchmark!.ticker}
+              disabled={pending}
+              onChange={e => {
+                const value = e.target.value;
+                startTransition(async () => {
+                  await setBenchmark(value);
+                  router.refresh();
+                });
+              }}
+              className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
             >
-              {p.label}
-            </button>
-          ))}
+              {availableBenchmarks.map(b => (
+                <option key={b.ticker} value={b.ticker}>
+                  {b.ticker}
+                </option>
+              ))}
+            </select>
+          ) : null}
         </div>
       </div>
       <div
@@ -91,44 +115,22 @@ export default function ReturnsTile({
           ? `${formatDate(r.start_date)} → ${formatDate(r.end_date)}`
           : "Insufficient history"}
       </div>
-      {benchmark && availableBenchmarks.length > 0 ? (
-        <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-2 text-xs">
-          <span className="text-slate-500">
-            vs <span className="font-medium text-slate-700">{benchmark.name}</span>:{" "}
-            <span className="text-slate-700">
-              {ir != null ? pct(ir, 2) : "—"}
+      {showBenchmark ? (
+        <div className="mt-2 border-t border-slate-100 pt-2 text-xs text-slate-500">
+          vs <span className="font-medium text-slate-700">{benchmark!.name}</span>:{" "}
+          <span className="text-slate-700">{ir != null ? pct(ir, 2) : "—"}</span>
+          {delta != null ? (
+            <span
+              className={clsx(
+                "ml-2 font-medium",
+                deltaTone === "positive" && "text-emerald-600",
+                deltaTone === "negative" && "text-rose-600",
+              )}
+            >
+              ({delta >= 0 ? "+" : ""}
+              {(delta * 100).toFixed(2)} pp)
             </span>
-            {delta != null ? (
-              <span
-                className={clsx(
-                  "ml-2 font-medium",
-                  deltaTone === "positive" && "text-emerald-600",
-                  deltaTone === "negative" && "text-rose-600",
-                )}
-              >
-                ({delta >= 0 ? "+" : ""}
-                {(delta * 100).toFixed(2)} pp)
-              </span>
-            ) : null}
-          </span>
-          <select
-            value={benchmark.ticker}
-            disabled={pending}
-            onChange={e => {
-              const value = e.target.value;
-              startTransition(async () => {
-                await setBenchmark(value);
-                router.refresh();
-              });
-            }}
-            className="rounded border border-slate-200 bg-white px-1 py-0.5 text-xs text-slate-700 disabled:opacity-60"
-          >
-            {availableBenchmarks.map(b => (
-              <option key={b.ticker} value={b.ticker}>
-                {b.ticker}
-              </option>
-            ))}
-          </select>
+          ) : null}
         </div>
       ) : null}
     </div>
