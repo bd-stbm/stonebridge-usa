@@ -214,8 +214,14 @@ CREATE INDEX IF NOT EXISTS sync_log_ts_idx ON public.sync_log (sync_timestamp DE
 -- Views — read models for the frontend / downstream apps
 -- =============================================================================
 
+-- All views use security_invoker so RLS on the underlying tables gates row
+-- access through the view too. Without this, the views run as the owner
+-- (postgres) and bypass RLS — flagged by Supabase linter as 0010_security_
+-- definer_view, and a real leak once family-scoped policies are added.
+
 -- Convenience view: latest snapshot per account-position
-CREATE OR REPLACE VIEW public.v_latest_positions AS
+CREATE OR REPLACE VIEW public.v_latest_positions
+WITH (security_invoker = true) AS
 SELECT
     p.snapshot_date,
     p.account_node_id,
@@ -255,7 +261,8 @@ WHERE p.snapshot_date = (
 );
 
 -- Monthly NAV per account
-CREATE OR REPLACE VIEW public.v_nav_monthly_by_account AS
+CREATE OR REPLACE VIEW public.v_nav_monthly_by_account
+WITH (security_invoker = true) AS
 SELECT
     p.snapshot_date,
     p.account_node_id,
@@ -270,7 +277,8 @@ LEFT JOIN public.entity_attribution ea ON p.account_node_id = ea.node_id
 GROUP BY p.snapshot_date, p.account_node_id, e.alias, ea.trust_alias, ea.sub_client_alias;
 
 -- Monthly NAV per trust
-CREATE OR REPLACE VIEW public.v_nav_monthly_by_trust AS
+CREATE OR REPLACE VIEW public.v_nav_monthly_by_trust
+WITH (security_invoker = true) AS
 SELECT
     p.snapshot_date,
     ea.trust_node_id,
@@ -283,7 +291,8 @@ WHERE ea.trust_node_id IS NOT NULL
 GROUP BY p.snapshot_date, ea.trust_node_id, ea.trust_alias, ea.sub_client_alias;
 
 -- Refreshed position values (joins latest pricing_refresh)
-CREATE OR REPLACE VIEW public.v_positions_refreshed AS
+CREATE OR REPLACE VIEW public.v_positions_refreshed
+WITH (security_invoker = true) AS
 WITH latest_refresh AS (
     SELECT MAX(refresh_date) AS d FROM public.pricing_refresh
 )
@@ -311,7 +320,8 @@ LEFT JOIN public.pricing_refresh pr
    AND pr.refresh_date = (SELECT d FROM latest_refresh);
 
 -- Income time series (Cash Dividends + Interest + Income), by account, by month
-CREATE OR REPLACE VIEW public.v_income_monthly_by_account AS
+CREATE OR REPLACE VIEW public.v_income_monthly_by_account
+WITH (security_invoker = true) AS
 SELECT
     date_trunc('month', t.transaction_date)::DATE AS month,
     t.account_node_id,
@@ -327,7 +337,8 @@ WHERE t.transaction_date IS NOT NULL
 GROUP BY 1, 2, 3;
 
 -- External flows per account
-CREATE OR REPLACE VIEW public.v_external_flows AS
+CREATE OR REPLACE VIEW public.v_external_flows
+WITH (security_invoker = true) AS
 SELECT
     t.transaction_date,
     t.account_node_id,
