@@ -384,6 +384,50 @@ export async function getNavSeriesByAssetClass(
 }
 
 // ---------------------------------------------------------------------------
+// Income — long-format rows for the Income page.
+// ---------------------------------------------------------------------------
+
+export interface IncomeRow {
+  month: string;
+  account_node_id: string;
+  account_alias: string | null;
+  trust_alias: string | null;
+  security_id: number | null;
+  asset_name: string | null;
+  asset_class: string | null;
+  ticker_masttro: string | null;
+  transaction_type: string;
+  reporting_ccy: string | null;
+  amount: number;
+}
+
+export async function getIncomeRows(
+  subClient: string = DEFAULT_SUB_CLIENT,
+  trust: string | null = null,
+  account: string | null = null,
+  fromDate: string = "2020-01-01",
+): Promise<IncomeRow[]> {
+  let q = getSupabaseServer()
+    .from("v_income_monthly")
+    .select(
+      "month, account_node_id, account_alias, trust_alias, security_id, " +
+        "asset_name, asset_class, ticker_masttro, transaction_type, " +
+        "reporting_ccy, amount",
+    )
+    .eq("sub_client_alias", subClient)
+    .gte("month", fromDate)
+    .order("month", { ascending: true });
+  if (trust) q = q.eq("trust_alias", trust);
+  if (account) q = q.eq("account_node_id", account);
+  const { data, error } = await q.limit(LIMIT_LARGE);
+  if (error) throw error;
+  const rows = (data ?? []) as unknown as Array<
+    Omit<IncomeRow, "amount"> & { amount: number | string | null }
+  >;
+  return rows.map(r => ({ ...r, amount: Number(r.amount ?? 0) }));
+}
+
+// ---------------------------------------------------------------------------
 // Index benchmarks — for the Returns-vs-index comparison on the Returns tile.
 // ---------------------------------------------------------------------------
 
