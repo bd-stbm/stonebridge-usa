@@ -33,8 +33,18 @@ def yymmdd_to_iso(s) -> str | None:
 
 
 def _to_float(v):
+    """Parse Masttro numeric fields. Some come as strings with thousands
+    separators ("23,677") for share counts or with a percent suffix ("100%")
+    for ownership positions (real estate). Strip commas; return None for
+    percent-suffixed values since they're not unit counts and would mislead
+    a quantity column. Without this, ETF / fund holdings landed as null and
+    every large position on the dashboard showed quantity 0."""
     if v is None or v == "":
         return None
+    if isinstance(v, str):
+        v = v.replace(",", "")
+        if v.endswith("%"):
+            return None
     try:
         return float(v)
     except (TypeError, ValueError):
