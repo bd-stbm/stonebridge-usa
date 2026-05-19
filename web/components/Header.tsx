@@ -9,6 +9,7 @@ import {
 import { getSelectedAccount, getSelectedTrust } from "@/lib/trust-filter";
 import TrustFilter from "@/components/TrustFilter";
 import AccountFilter from "@/components/AccountFilter";
+import UserMenu from "@/components/UserMenu";
 
 const TABS = [
   { href: "/", label: "Overview" },
@@ -65,20 +66,10 @@ export default async function Header({ subClient }: { subClient: string }) {
               {t.label}
             </Link>
           ))}
-          {user ? (
-            <form
-              action="/auth/signout"
-              method="post"
-              className="flex items-center gap-3 border-l border-slate-200 pl-6"
-            >
-              <span className="text-xs text-slate-500">{user.email}</span>
-              <button
-                type="submit"
-                className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
-              >
-                Sign out
-              </button>
-            </form>
+          {user?.email ? (
+            <div className="border-l border-slate-200 pl-6">
+              <UserMenu email={user.email} />
+            </div>
           ) : null}
         </nav>
       </div>
