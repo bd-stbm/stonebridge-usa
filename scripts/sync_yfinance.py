@@ -22,6 +22,7 @@ warnings.filterwarnings("ignore")
 from tracker.db import connect, log_sync
 from tracker.enrich import _fetch_yf, _openfigi_resolve, normalize_ticker
 from tracker.sync_indices import sync_indices_recent
+from tracker.sync_security_prices import sync_security_prices_recent
 from tracker.sync_supabase import insert_pricing_refresh, set_security_ticker_yf
 
 
@@ -132,6 +133,16 @@ def main() -> int:
                  ", ".join(f"{k}={v}" for k, v in idx_stats.items()),
                  idx_total)
         print(f"  index rows written: {idx_total}")
+
+        # Append latest closes for every held public security — feeds the
+        # historical NAV reconstruction used by 6M / 1Y returns.
+        print("syncing security price history...")
+        sec_stats = sync_security_prices_recent(conn, days_back=10)
+        sec_total = sum(sec_stats.values())
+        log_sync(conn, "security_price_sync", "all",
+                 f"tickers={len(sec_stats)} rows={sec_total}",
+                 sec_total)
+        print(f"  security price rows written: {sec_total}")
 
     finally:
         conn.close()

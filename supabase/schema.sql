@@ -224,6 +224,23 @@ CREATE INDEX IF NOT EXISTS index_price_date_idx
     ON public.index_price_history (price_date);
 
 -- =============================================================================
+-- security_price_history — daily yfinance closes for held public securities,
+-- used to reconstruct NAVs at arbitrary dates (6M / 1Y precision).
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS public.security_price_history (
+    ticker_yf  TEXT NOT NULL,
+    price_date DATE NOT NULL,
+    close      NUMERIC(20, 8) NOT NULL,
+    source     TEXT NOT NULL DEFAULT 'yfinance',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (ticker_yf, price_date)
+);
+CREATE INDEX IF NOT EXISTS security_price_history_date_idx
+    ON public.security_price_history (price_date);
+CREATE INDEX IF NOT EXISTS security_price_history_ticker_idx
+    ON public.security_price_history (ticker_yf);
+
+-- =============================================================================
 -- sync_log — audit trail of ingestion / refresh runs
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS public.sync_log (
@@ -465,8 +482,9 @@ ALTER TABLE public.position_snapshot   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.transaction_log     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.pricing_refresh     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sync_log            ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.index_definition    ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.index_price_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.index_definition       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.index_price_history    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.security_price_history ENABLE ROW LEVEL SECURITY;
 
 -- Example "allow all reads for authenticated users" policy template
 -- (uncomment and customise per table once your auth model is decided):
