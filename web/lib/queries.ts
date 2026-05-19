@@ -84,7 +84,7 @@ export interface AccountOption {
 
 export async function listAccounts(
   subClient: string = DEFAULT_SUB_CLIENT,
-  trust: string | null = null,
+  trusts: string[] = [],
 ): Promise<AccountOption[]> {
   // Source from v_latest_positions so we only get accounts that actually
   // hold positions in the latest snapshot. Multiple rows per account get
@@ -93,7 +93,7 @@ export async function listAccounts(
     .from("v_latest_positions")
     .select("account_node_id, account_alias, custodian, trust_alias")
     .eq("sub_client_alias", subClient);
-  if (trust) q = q.eq("trust_alias", trust);
+  if (trusts.length) q = q.in("trust_alias", trusts);
   const { data, error } = await q.limit(LIMIT_LARGE);
   if (error) throw error;
   const rows = (data ?? []) as unknown as Array<{
@@ -139,8 +139,8 @@ export async function listTrusts(
 
 export async function getLatestPositions(
   subClient: string = DEFAULT_SUB_CLIENT,
-  trust: string | null = null,
-  account: string | null = null,
+  trusts: string[] = [],
+  accounts: string[] = [],
 ): Promise<Position[]> {
   // Query v_positions_refreshed (joins yfinance via pricing_refresh) so the
   // NAV figures throughout the dashboard reflect today's market price when
@@ -160,8 +160,8 @@ export async function getLatestPositions(
         "unrealized_gl_local",
     )
     .eq("sub_client_alias", subClient);
-  if (trust) q = q.eq("trust_alias", trust);
-  if (account) q = q.eq("account_node_id", account);
+  if (trusts.length) q = q.in("trust_alias", trusts);
+  if (accounts.length) q = q.in("account_node_id", accounts);
   const { data, error } = await q
     .order("mv_reporting_refreshed", { ascending: false, nullsFirst: false })
     .limit(LIMIT_LARGE);
@@ -171,15 +171,15 @@ export async function getLatestPositions(
 
 export async function getNavSeries(
   subClient: string = DEFAULT_SUB_CLIENT,
-  trust: string | null = null,
-  account: string | null = null,
+  trusts: string[] = [],
+  accounts: string[] = [],
 ): Promise<NavPoint[]> {
   let q = getSupabaseServer()
     .from("v_nav_monthly_by_account")
     .select("snapshot_date, nav_reporting")
     .eq("sub_client_alias", subClient);
-  if (trust) q = q.eq("trust_alias", trust);
-  if (account) q = q.eq("account_node_id", account);
+  if (trusts.length) q = q.in("trust_alias", trusts);
+  if (accounts.length) q = q.in("account_node_id", accounts);
   const { data, error } = await q.limit(LIMIT_LARGE);
   if (error) throw error;
 
@@ -213,13 +213,13 @@ export interface PeriodReturnOverrides {
 
 export async function getPeriodReturns(
   subClient: string = DEFAULT_SUB_CLIENT,
-  trust: string | null = null,
-  account: string | null = null,
+  trusts: string[] = [],
+  accounts: string[] = [],
   overrides: PeriodReturnOverrides = {},
 ): Promise<Record<PeriodKey, PeriodReturn>> {
   // NAV series across the whole history (we re-use this for the chart anyway,
   // so cost is one row-set per request — small).
-  const navs = await getNavSeries(subClient, trust, account);
+  const navs = await getNavSeries(subClient, trusts, accounts);
   if (navs.length === 0) {
     return computeAllPeriodReturns([], [], overrides);
   }
@@ -235,8 +235,8 @@ export async function getPeriodReturns(
     )
     .eq("sub_client_alias", subClient)
     .gte("transaction_date", earliest);
-  if (trust) q = q.eq("trust_alias", trust);
-  if (account) q = q.eq("account_node_id", account);
+  if (trusts.length) q = q.in("trust_alias", trusts);
+  if (accounts.length) q = q.in("account_node_id", accounts);
   const { data, error } = await q.limit(LIMIT_LARGE);
   if (error) throw error;
 
@@ -259,8 +259,8 @@ export async function getPeriodReturns(
 
 export async function getNavSeriesByTrust(
   subClient: string = DEFAULT_SUB_CLIENT,
-  trust: string | null = null,
-  account: string | null = null,
+  trusts: string[] = [],
+  accounts: string[] = [],
 ): Promise<Record<string, NavPoint[]>> {
   // Per-(snapshot_date, account) NAV rows from v_nav_monthly_by_account,
   // aggregated by trust_alias in JS for the Performance page's matrix.
@@ -271,8 +271,8 @@ export async function getNavSeriesByTrust(
     .select("snapshot_date, trust_alias, nav_reporting")
     .eq("sub_client_alias", subClient)
     .not("trust_alias", "is", null);
-  if (trust) q = q.eq("trust_alias", trust);
-  if (account) q = q.eq("account_node_id", account);
+  if (trusts.length) q = q.in("trust_alias", trusts);
+  if (accounts.length) q = q.in("account_node_id", accounts);
   const { data, error } = await q.limit(LIMIT_LARGE);
   if (error) throw error;
 
@@ -306,8 +306,8 @@ export async function getNavSeriesByTrust(
 
 export async function getFlowsByTrust(
   subClient: string = DEFAULT_SUB_CLIENT,
-  trust: string | null = null,
-  account: string | null = null,
+  trusts: string[] = [],
+  accounts: string[] = [],
   fromDate: string = "2020-01-01",
 ): Promise<Record<string, Flow[]>> {
   let q = getSupabaseServer()
@@ -316,8 +316,8 @@ export async function getFlowsByTrust(
     .eq("sub_client_alias", subClient)
     .gte("transaction_date", fromDate)
     .not("trust_alias", "is", null);
-  if (trust) q = q.eq("trust_alias", trust);
-  if (account) q = q.eq("account_node_id", account);
+  if (trusts.length) q = q.in("trust_alias", trusts);
+  if (accounts.length) q = q.in("account_node_id", accounts);
   const { data, error } = await q.limit(LIMIT_LARGE);
   if (error) throw error;
 
@@ -340,8 +340,8 @@ export async function getFlowsByTrust(
 
 export async function getNavSeriesByAssetClass(
   subClient: string = DEFAULT_SUB_CLIENT,
-  trust: string | null = null,
-  account: string | null = null,
+  trusts: string[] = [],
+  accounts: string[] = [],
 ): Promise<Record<string, NavPoint[]>> {
   // Per-(snapshot_date, account, asset_class) rows from the view. We
   // aggregate across accounts in JS, keyed by asset_class, to get one NAV
@@ -350,8 +350,8 @@ export async function getNavSeriesByAssetClass(
     .from("v_nav_monthly_by_asset_class")
     .select("snapshot_date, asset_class, nav_reporting")
     .eq("sub_client_alias", subClient);
-  if (trust) q = q.eq("trust_alias", trust);
-  if (account) q = q.eq("account_node_id", account);
+  if (trusts.length) q = q.in("trust_alias", trusts);
+  if (accounts.length) q = q.in("account_node_id", accounts);
   const { data, error } = await q.limit(LIMIT_LARGE);
   if (error) throw error;
 
@@ -403,8 +403,8 @@ export interface IncomeRow {
 
 export async function getIncomeRows(
   subClient: string = DEFAULT_SUB_CLIENT,
-  trust: string | null = null,
-  account: string | null = null,
+  trusts: string[] = [],
+  accounts: string[] = [],
   fromDate: string = "2020-01-01",
 ): Promise<IncomeRow[]> {
   let q = getSupabaseServer()
@@ -417,8 +417,8 @@ export async function getIncomeRows(
     .eq("sub_client_alias", subClient)
     .gte("month", fromDate)
     .order("month", { ascending: true });
-  if (trust) q = q.eq("trust_alias", trust);
-  if (account) q = q.eq("account_node_id", account);
+  if (trusts.length) q = q.in("trust_alias", trusts);
+  if (accounts.length) q = q.in("account_node_id", accounts);
   const { data, error } = await q.limit(LIMIT_LARGE);
   if (error) throw error;
   const rows = (data ?? []) as unknown as Array<
@@ -455,8 +455,8 @@ export interface Transaction {
 
 export async function getTransactions(
   subClient: string = DEFAULT_SUB_CLIENT,
-  trust: string | null = null,
-  account: string | null = null,
+  trusts: string[] = [],
+  accounts: string[] = [],
   fromDate: string = "2020-01-01",
   toDate: string | null = null,
 ): Promise<Transaction[]> {
@@ -473,8 +473,8 @@ export async function getTransactions(
     .gte("transaction_date", fromDate)
     .order("transaction_date", { ascending: false });
   if (toDate) q = q.lte("transaction_date", toDate);
-  if (trust) q = q.eq("trust_alias", trust);
-  if (account) q = q.eq("account_node_id", account);
+  if (trusts.length) q = q.in("trust_alias", trusts);
+  if (accounts.length) q = q.in("account_node_id", accounts);
   const { data, error } = await q.limit(LIMIT_LARGE);
   if (error) throw error;
   return (data ?? []) as unknown as Transaction[];

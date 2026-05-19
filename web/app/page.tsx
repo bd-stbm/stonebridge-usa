@@ -14,9 +14,9 @@ import {
   listIndices,
 } from "@/lib/queries";
 import {
-  getSelectedAccount,
+  getSelectedAccounts,
   getSelectedBenchmark,
-  getSelectedTrust,
+  getSelectedTrusts,
 } from "@/lib/trust-filter";
 import {
   computeAllPeriodReturns,
@@ -29,14 +29,14 @@ import { money } from "@/lib/format";
 export const dynamic = "force-dynamic";
 
 export default async function OverviewPage() {
-  const trust = getSelectedTrust();
-  const account = getSelectedAccount();
+  const trusts = getSelectedTrusts();
+  const accounts = getSelectedAccounts();
   const benchmarkTicker = getSelectedBenchmark();
   const [positions, navSeries, indices, navByClass] = await Promise.all([
-    getLatestPositions(DEFAULT_SUB_CLIENT, trust, account),
-    getNavSeries(DEFAULT_SUB_CLIENT, trust, account),
+    getLatestPositions(DEFAULT_SUB_CLIENT, trusts, accounts),
+    getNavSeries(DEFAULT_SUB_CLIENT, trusts, accounts),
     listIndices(),
-    getNavSeriesByAssetClass(DEFAULT_SUB_CLIENT, trust, account),
+    getNavSeriesByAssetClass(DEFAULT_SUB_CLIENT, trusts, accounts),
   ]);
   const kpis = computeKpis(positions);
 
@@ -52,7 +52,7 @@ export default async function OverviewPage() {
       s + Number(p.mv_reporting_yesterday ?? p.mv_reporting ?? 0),
     0,
   );
-  const returns = await getPeriodReturns(DEFAULT_SUB_CLIENT, trust, account, {
+  const returns = await getPeriodReturns(DEFAULT_SUB_CLIENT, trusts, accounts, {
     endNav,
     endNavYesterday,
   });

@@ -5,7 +5,7 @@ import {
   DEFAULT_SUB_CLIENT,
   getTransactions,
 } from "@/lib/queries";
-import { getSelectedAccount, getSelectedTrust } from "@/lib/trust-filter";
+import { getSelectedAccounts, getSelectedTrusts } from "@/lib/trust-filter";
 import { money } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -34,16 +34,16 @@ export default async function TransactionsPage({
 }: {
   searchParams: { from?: string; to?: string };
 }) {
-  const trust = getSelectedTrust();
-  const account = getSelectedAccount();
+  const trusts = getSelectedTrusts();
+  const accounts = getSelectedAccounts();
 
   const from = isValidIso(searchParams.from) ? searchParams.from : defaultFrom();
   const to = isValidIso(searchParams.to) ? searchParams.to : defaultTo();
 
   const transactions = await getTransactions(
     DEFAULT_SUB_CLIENT,
-    trust,
-    account,
+    trusts,
+    accounts,
     from,
     to,
   );
@@ -62,7 +62,16 @@ export default async function TransactionsPage({
   }
 
   const scopeNote =
-    [trust ? `Trust: ${trust}` : null, account ? "Account scoped" : null]
+    [
+      trusts.length === 1
+        ? `Trust: ${trusts[0]}`
+        : trusts.length > 1
+          ? `${trusts.length} trusts`
+          : null,
+      accounts.length > 0
+        ? `${accounts.length} account${accounts.length > 1 ? "s" : ""} scoped`
+        : null,
+    ]
       .filter(Boolean)
       .join(" · ") || "All trusts under " + DEFAULT_SUB_CLIENT;
 

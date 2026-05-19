@@ -14,9 +14,9 @@ import {
   type Position,
 } from "@/lib/queries";
 import {
-  getSelectedAccount,
+  getSelectedAccounts,
   getSelectedBenchmark,
-  getSelectedTrust,
+  getSelectedTrusts,
 } from "@/lib/trust-filter";
 import {
   computeAllPeriodReturns,
@@ -50,8 +50,8 @@ function sumPosition(positions: Position[], field: "mv_reporting" | "mv_reportin
 }
 
 export default async function PerformancePage() {
-  const trust = getSelectedTrust();
-  const account = getSelectedAccount();
+  const trusts = getSelectedTrusts();
+  const accounts = getSelectedAccounts();
   const benchmarkTicker = getSelectedBenchmark();
 
   const [
@@ -62,14 +62,14 @@ export default async function PerformancePage() {
     indices,
     returns,
   ] = await Promise.all([
-    getLatestPositions(DEFAULT_SUB_CLIENT, trust, account),
-    getNavSeries(DEFAULT_SUB_CLIENT, trust, account),
-    getNavSeriesByTrust(DEFAULT_SUB_CLIENT, trust, account),
-    getNavSeriesByAssetClass(DEFAULT_SUB_CLIENT, trust, account),
+    getLatestPositions(DEFAULT_SUB_CLIENT, trusts, accounts),
+    getNavSeries(DEFAULT_SUB_CLIENT, trusts, accounts),
+    getNavSeriesByTrust(DEFAULT_SUB_CLIENT, trusts, accounts),
+    getNavSeriesByAssetClass(DEFAULT_SUB_CLIENT, trusts, accounts),
     listIndices(),
     // Total scope returns — reused as the "Total" row anchor + comparison
     // baseline. Page-level overrides applied below.
-    getPeriodReturns(DEFAULT_SUB_CLIENT, trust, account, {}),
+    getPeriodReturns(DEFAULT_SUB_CLIENT, trusts, accounts, {}),
   ]);
 
   const benchmarkFromDate =
@@ -84,8 +84,8 @@ export default async function PerformancePage() {
   // Flows per trust — for trust-level Modified Dietz.
   const flowsByTrust = await getFlowsByTrust(
     DEFAULT_SUB_CLIENT,
-    trust,
-    account,
+    trusts,
+    accounts,
     benchmarkFromDate,
   );
 
@@ -172,7 +172,14 @@ export default async function PerformancePage() {
   const indexReturns = computeIndexReturnsForAllPeriods(indexPrices, returns);
 
   const scopeNote =
-    [trust ? `Trust: ${trust}` : null, account ? "Account scoped" : null]
+    [
+      trusts.length === 1
+        ? `Trust: ${trusts[0]}`
+        : trusts.length > 1
+          ? `${trusts.length} trusts`
+          : null,
+      accounts.length > 0 ? `${accounts.length} account${accounts.length > 1 ? "s" : ""} scoped` : null,
+    ]
       .filter(Boolean)
       .join(" · ") || "All trusts under " + DEFAULT_SUB_CLIENT;
 

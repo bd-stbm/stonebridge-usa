@@ -6,7 +6,7 @@ import {
   listAccounts,
   listTrusts,
 } from "@/lib/queries";
-import { getSelectedAccount, getSelectedTrust } from "@/lib/trust-filter";
+import { getSelectedAccounts, getSelectedTrusts } from "@/lib/trust-filter";
 import TrustFilter from "@/components/TrustFilter";
 import AccountFilter from "@/components/AccountFilter";
 import UserMenu from "@/components/UserMenu";
@@ -19,20 +19,31 @@ const TABS = [
   { href: "/transactions", label: "Transactions" },
 ];
 
+function summarise(label: string, items: string[]): string | null {
+  if (items.length === 0) return null;
+  if (items.length === 1) return items[0];
+  return `${items.length} ${label}`;
+}
+
 export default async function Header({ subClient }: { subClient: string }) {
-  const currentTrust = getSelectedTrust();
-  const currentAccount = getSelectedAccount();
+  const currentTrusts = getSelectedTrusts();
+  const currentAccounts = getSelectedAccounts();
   const scope = subClient ?? DEFAULT_SUB_CLIENT;
 
   const [{ data: { user } }, trusts, accounts] = await Promise.all([
     getSupabaseServer().auth.getUser(),
     listTrusts(scope),
-    listAccounts(scope, currentTrust),
+    listAccounts(scope, currentTrusts),
   ]);
 
-  const currentAccountLabel = currentAccount
-    ? accounts.find(a => a.node_id === currentAccount)?.alias ?? currentAccount
-    : null;
+  const trustCrumb = summarise("trusts", currentTrusts);
+  const accountSelected =
+    currentAccounts.length === 1
+      ? accounts.find(a => a.node_id === currentAccounts[0])?.alias ?? currentAccounts[0]
+      : null;
+  const accountCrumb =
+    accountSelected ??
+    (currentAccounts.length > 1 ? `${currentAccounts.length} accounts` : null);
 
   return (
     <header className="border-b border-slate-200 bg-white">
@@ -48,11 +59,11 @@ export default async function Header({ subClient }: { subClient: string }) {
           />
           <span className="hidden text-xs text-slate-500 sm:inline">
             {scope}
-            {currentTrust ? (
-              <> · <span className="text-slate-700">{currentTrust}</span></>
+            {trustCrumb ? (
+              <> · <span className="text-slate-700">{trustCrumb}</span></>
             ) : null}
-            {currentAccountLabel ? (
-              <> · <span className="text-slate-700">{currentAccountLabel}</span></>
+            {accountCrumb ? (
+              <> · <span className="text-slate-700">{accountCrumb}</span></>
             ) : null}
           </span>
         </Link>
@@ -75,8 +86,8 @@ export default async function Header({ subClient }: { subClient: string }) {
       </div>
       <div className="border-t border-slate-100 bg-slate-50">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-end gap-4 px-6 py-2">
-          <TrustFilter trusts={trusts} currentTrust={currentTrust} />
-          <AccountFilter accounts={accounts} currentAccount={currentAccount} />
+          <TrustFilter trusts={trusts} currentTrusts={currentTrusts} />
+          <AccountFilter accounts={accounts} currentAccounts={currentAccounts} />
         </div>
       </div>
     </header>

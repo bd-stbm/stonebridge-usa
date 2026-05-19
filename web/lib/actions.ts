@@ -9,38 +9,29 @@ import {
 
 const ONE_YEAR = 60 * 60 * 24 * 365;
 
-// Server actions invoked by the header filter dropdowns. The client follows
-// up with router.refresh() so server components re-render with the new
-// scope.
-
-export async function setTrustFilter(trust: string): Promise<void> {
+function setOrClearList(name: string, values: string[]): void {
   const c = cookies();
-  if (!trust) {
-    c.delete(TRUST_COOKIE);
-  } else {
-    c.set(TRUST_COOKIE, trust, {
-      path: "/",
-      sameSite: "lax",
-      maxAge: ONE_YEAR,
-    });
-  }
-  // Changing trusts almost always makes any previously-selected account
-  // invalid (different sub-tree). Clear it so the AccountFilter resets
-  // to "All accounts".
-  c.delete(ACCOUNT_COOKIE);
-}
-
-export async function setAccountFilter(account: string): Promise<void> {
-  const c = cookies();
-  if (!account) {
-    c.delete(ACCOUNT_COOKIE);
+  if (!values || values.length === 0) {
+    c.delete(name);
     return;
   }
-  c.set(ACCOUNT_COOKIE, account, {
+  c.set(name, JSON.stringify(values), {
     path: "/",
     sameSite: "lax",
     maxAge: ONE_YEAR,
   });
+}
+
+export async function setTrustFilter(trusts: string[]): Promise<void> {
+  setOrClearList(TRUST_COOKIE, trusts);
+  // Changing trusts almost always invalidates previously-selected accounts
+  // (the account may now be outside scope). Clear so the AccountFilter
+  // resets and the page re-renders with the new trust set.
+  cookies().delete(ACCOUNT_COOKIE);
+}
+
+export async function setAccountFilter(accounts: string[]): Promise<void> {
+  setOrClearList(ACCOUNT_COOKIE, accounts);
 }
 
 export async function setBenchmark(ticker: string): Promise<void> {

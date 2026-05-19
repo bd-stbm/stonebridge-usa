@@ -15,8 +15,8 @@ import {
   type IncomeRow,
 } from "@/lib/queries";
 import {
-  getSelectedAccount,
-  getSelectedTrust,
+  getSelectedAccounts,
+  getSelectedTrusts,
 } from "@/lib/trust-filter";
 import { money, pct } from "@/lib/format";
 
@@ -36,8 +36,8 @@ function sumAmount(rows: IncomeRow[]): number {
 }
 
 export default async function IncomePage() {
-  const trust = getSelectedTrust();
-  const account = getSelectedAccount();
+  const trusts = getSelectedTrusts();
+  const accounts = getSelectedAccounts();
 
   const today = new Date();
   // We need at least 13 months of history so TTM works regardless of where
@@ -48,8 +48,8 @@ export default async function IncomePage() {
   );
 
   const [positions, incomeRows] = await Promise.all([
-    getLatestPositions(DEFAULT_SUB_CLIENT, trust, account),
-    getIncomeRows(DEFAULT_SUB_CLIENT, trust, account, fromDate),
+    getLatestPositions(DEFAULT_SUB_CLIENT, trusts, accounts),
+    getIncomeRows(DEFAULT_SUB_CLIENT, trusts, accounts, fromDate),
   ]);
   const kpis = computeKpis(positions);
 
@@ -149,7 +149,8 @@ export default async function IncomePage() {
   // --- Income by trust ------------------------------------------------------
   // Only show this table when the user hasn't already filtered to a single
   // trust (in which case it'd be redundant).
-  const showByTrust = !trust;
+  // Show the by-trust table when we're not already narrowed to one trust.
+  const showByTrust = trusts.length !== 1;
   let trustRows: TrustIncomeRow[] = [];
   if (showByTrust) {
     const trustBuckets = new Map<
@@ -186,7 +187,16 @@ export default async function IncomePage() {
   }
 
   const scopeNote =
-    [trust ? `Trust: ${trust}` : null, account ? "Account scoped" : null]
+    [
+      trusts.length === 1
+        ? `Trust: ${trusts[0]}`
+        : trusts.length > 1
+          ? `${trusts.length} trusts`
+          : null,
+      accounts.length > 0
+        ? `${accounts.length} account${accounts.length > 1 ? "s" : ""} scoped`
+        : null,
+    ]
       .filter(Boolean)
       .join(" · ") || "All trusts under " + DEFAULT_SUB_CLIENT;
 
