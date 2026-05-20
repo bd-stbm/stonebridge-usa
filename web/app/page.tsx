@@ -34,12 +34,23 @@ export default async function OverviewPage() {
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
   const benchmarkTicker = getSelectedBenchmark();
-  const [positions, navSeries, indices, navByClass] = await Promise.all([
-    getLatestPositions(DEFAULT_SUB_CLIENT, trusts, accounts),
-    getNavSeries(DEFAULT_SUB_CLIENT, trusts, accounts),
-    listIndices(),
-    getNavSeriesByAssetClass(DEFAULT_SUB_CLIENT, trusts, accounts),
-  ]);
+  // Precise 6M and 1Y start NAVs via the reconstructed_nav_at RPC. Other
+  // periods (1D / MTD / YTD) already align to dates we have exactly, so
+  // we leave them on the snapshot-grid path.
+  const today = new Date();
+  const target6M = computePeriodStart("6m", today);
+  const target1Y = computePeriodStart("1y", today);
+  // Everything in this batch is independent — fire in parallel for one
+  // network round-trip instead of three sequential ones.
+  const [positions, navSeries, indices, navByClass, nav6M, nav1Y] =
+    await Promise.all([
+      getLatestPositions(DEFAULT_SUB_CLIENT, trusts, accounts),
+      getNavSeries(DEFAULT_SUB_CLIENT, trusts, accounts),
+      listIndices(),
+      getNavSeriesByAssetClass(DEFAULT_SUB_CLIENT, trusts, accounts),
+      getReconstructedNavAt(DEFAULT_SUB_CLIENT, trusts, accounts, target6M),
+      getReconstructedNavAt(DEFAULT_SUB_CLIENT, trusts, accounts, target1Y),
+    ]);
   const kpis = computeKpis(positions);
 
   // Use the yfinance-refreshed sums as the end-of-period NAV for every return,
@@ -54,35 +65,27 @@ export default async function OverviewPage() {
       s + Number(p.mv_reporting_yesterday ?? p.mv_reporting ?? 0),
     0,
   );
-  // Precise 6M and 1Y start NAVs via the reconstructed_nav_at RPC. Other
-  // periods (1D / MTD / YTD) already align to dates we have exactly, so
-  // we leave them on the snapshot-grid path.
-  const today = new Date();
-  const target6M = computePeriodStart("6m", today);
-  const target1Y = computePeriodStart("1y", today);
-  const [nav6M, nav1Y] = await Promise.all([
-    getReconstructedNavAt(DEFAULT_SUB_CLIENT, trusts, accounts, target6M),
-    getReconstructedNavAt(DEFAULT_SUB_CLIENT, trusts, accounts, target1Y),
-  ]);
   const startNavByPeriod: Partial<Record<PeriodKey, { nav: number; date: string }>> = {};
   if (nav6M != null) startNavByPeriod["6m"] = { nav: nav6M, date: target6M };
   if (nav1Y != null) startNavByPeriod["1y"] = { nav: nav1Y, date: target1Y };
 
-  const returns = await getPeriodReturns(DEFAULT_SUB_CLIENT, trusts, accounts, {
-    endNav,
-    endNavYesterday,
-    startNavByPeriod,
-  });
-
   // Pull benchmark price history starting from the earliest portfolio snapshot
-  // (or 5y back if there's no portfolio data yet). Then compute index returns
-  // over the same period dates the portfolio returns used.
+  // (or 5y back if there's no portfolio data yet). Run in parallel with
+  // getPeriodReturns — they're independent.
   const benchmarkFromDate =
     navSeries[0]?.snapshot_date ??
     new Date(Date.UTC(new Date().getUTCFullYear() - 5, 0, 1))
       .toISOString()
       .slice(0, 10);
-  const indexPrices = await getIndexPrices(benchmarkTicker, benchmarkFromDate);
+  const [returns, indexPrices] = await Promise.all([
+    getPeriodReturns(DEFAULT_SUB_CLIENT, trusts, accounts, {
+      endNav,
+      endNavYesterday,
+      startNavByPeriod,
+      navs: navSeries,
+    }),
+    getIndexPrices(benchmarkTicker, benchmarkFromDate),
+  ]);
   const indexReturns = computeIndexReturnsForAllPeriods(indexPrices, returns);
   const benchmark =
     indices.find(i => i.ticker === benchmarkTicker) ?? indices[0] ?? null;

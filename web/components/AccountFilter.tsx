@@ -92,10 +92,22 @@ export default function AccountFilter({ accounts, currentAccounts }: Props) {
           type="button"
           onClick={() => setOpen(o => !o)}
           disabled={pending || accounts.length === 0}
-          className="flex items-center gap-2 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+          className="flex items-center gap-2 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
         >
-          <span className="max-w-[180px] truncate">{label}</span>
-          <span className="text-slate-400">▾</span>
+          {pending ? (
+            <>
+              <span
+                aria-hidden
+                className="h-3 w-3 animate-spin rounded-full border-2 border-slate-300 border-t-brand"
+              />
+              <span>Updating…</span>
+            </>
+          ) : (
+            <>
+              <span className="max-w-[180px] truncate">{label}</span>
+              <span className="text-slate-400">▾</span>
+            </>
+          )}
         </button>
       </label>
       {open ? (

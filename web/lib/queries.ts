@@ -213,6 +213,10 @@ export interface PeriodReturnOverrides {
   // from the reconstructed_nav_at RPC for periods that need date precision
   // (currently 6M and 1Y).
   startNavByPeriod?: Partial<Record<PeriodKey, { nav: number; date: string }>>;
+  // Pre-fetched NAV series — pass this when the caller already loaded
+  // getNavSeries(subClient, trusts, accounts) on the same page render, to
+  // skip the duplicate round-trip inside this function.
+  navs?: NavPoint[];
 }
 
 export async function getPeriodReturns(
@@ -221,9 +225,8 @@ export async function getPeriodReturns(
   accounts: string[] = [],
   overrides: PeriodReturnOverrides = {},
 ): Promise<Record<PeriodKey, PeriodReturn>> {
-  // NAV series across the whole history (we re-use this for the chart anyway,
-  // so cost is one row-set per request — small).
-  const navs = await getNavSeries(subClient, trusts, accounts);
+  const navs =
+    overrides.navs ?? (await getNavSeries(subClient, trusts, accounts));
   if (navs.length === 0) {
     return computeAllPeriodReturns([], [], overrides);
   }
