@@ -102,6 +102,30 @@ export default async function OverviewPage() {
     arr.push(p);
     positionsByClass.set(ac, arr);
   }
+  // Fetch precise 6M / 1Y start NAVs per asset class via the asset-class-
+  // aware reconstructed_nav_at RPC (migration 014). Without this, asset-
+  // class returns used the snapshot-grid path and their start_date snapped
+  // to the previous month-end — which made the benchmark column for that
+  // slice differ from Total, since computeIndexReturn slices the index
+  // series by the portfolio's own dates. All 2*N calls fire in parallel.
+  const acNames = Array.from(new Set(Object.keys(navByClass)));
+  const acStartNavPromises = acNames.flatMap(ac => [
+    getReconstructedNavAt(subClient, trusts, accounts, target6M, ac),
+    getReconstructedNavAt(subClient, trusts, accounts, target1Y, ac),
+  ]);
+  const acStartNavResults = await Promise.all(acStartNavPromises);
+  const acStartNavByPeriod: Record<
+    string,
+    Partial<Record<PeriodKey, { nav: number; date: string }>>
+  > = {};
+  acNames.forEach((ac, i) => {
+    const nav6 = acStartNavResults[i * 2];
+    const nav1 = acStartNavResults[i * 2 + 1];
+    const overrides: Partial<Record<PeriodKey, { nav: number; date: string }>> = {};
+    if (nav6 != null) overrides["6m"] = { nav: nav6, date: target6M };
+    if (nav1 != null) overrides["1y"] = { nav: nav1, date: target1Y };
+    acStartNavByPeriod[ac] = overrides;
+  });
   const returnsByAssetClass: Record<string, Record<PeriodKey, PeriodReturn>> = {};
   for (const [ac, navs] of Object.entries(navByClass)) {
     const classPositions = positionsByClass.get(ac) ?? [];
@@ -116,7 +140,11 @@ export default async function OverviewPage() {
     returnsByAssetClass[ac] = computeAllPeriodReturns(
       navs.map(n => ({ date: n.snapshot_date, nav: n.nav })),
       [],
-      { endNav: acEndNav, endNavYesterday: acEndNavYesterday },
+      {
+        endNav: acEndNav,
+        endNavYesterday: acEndNavYesterday,
+        startNavByPeriod: acStartNavByPeriod[ac],
+      },
     );
   }
   const indexReturnsByAssetClass: Record<

@@ -566,18 +566,39 @@ export async function getReconstructedNavAt(
   trusts: string[],
   accounts: string[],
   targetDate: string,
+  // Optional asset_class filter — see migration 014. Page convention:
+  // "Unclassified" maps to NULL asset_class in the DB, so we pass an
+  // empty string for that bucket (the RPC special-cases "" → IS NULL).
+  assetClass?: string,
 ): Promise<number | null> {
-  return timed(`reconstructed_nav_at(${targetDate})`, async () => {
+  const label = assetClass !== undefined
+    ? `reconstructed_nav_at(${targetDate},${assetClass || "<null>"})`
+    : `reconstructed_nav_at(${targetDate})`;
+  return timed(label, async () => {
+    const params: Record<string, unknown> = {
+      p_sub_client: subClient,
+      p_trusts: trusts.length ? trusts : null,
+      p_accounts: accounts.length ? accounts : null,
+      p_target_date: targetDate,
+    };
+    if (assetClass !== undefined) {
+      params.p_asset_class = assetClass === "Unclassified" ? "" : assetClass;
+    }
     const { data, error } = await getSupabaseServer().rpc(
       "reconstructed_nav_at",
-      {
-        p_sub_client: subClient,
-        p_trusts: trusts.length ? trusts : null,
-        p_accounts: accounts.length ? accounts : null,
-        p_target_date: targetDate,
-      },
+      params,
     );
-    if (error) throw error;
+    if (error) {
+      // If migration 014 hasn't been applied yet, PostgREST can't find a
+      // function with the p_asset_class arg and returns PGRST202. Don't
+      // crash the page in that window — fall back to null so the caller
+      // uses the snapshot-grid path. Re-throw any other error.
+      if (assetClass !== undefined && (error.code === "PGRST202" || /asset_class/i.test(error.message))) {
+        console.log(`[q] ${label} fallback: ${error.message}`);
+        return null;
+      }
+      throw error;
+    }
     if (data == null) return null;
     const n = Number(data);
     return Number.isFinite(n) ? n : null;
