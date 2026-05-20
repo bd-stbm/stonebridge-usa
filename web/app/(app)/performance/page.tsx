@@ -1,4 +1,3 @@
-import Header from "@/components/Header";
 import PerformanceMatrix from "@/components/PerformanceMatrix";
 import RebasedChart, { type RebasedPoint } from "@/components/RebasedChart";
 import {
@@ -184,41 +183,38 @@ export default async function PerformancePage() {
       .join(" · ") || "All trusts under " + DEFAULT_SUB_CLIENT;
 
   return (
-    <>
-      <Header subClient={DEFAULT_SUB_CLIENT} />
-      <main className="mx-auto max-w-7xl space-y-8 px-6 py-8">
-        <div className="flex items-baseline justify-between">
-          <h1 className="text-2xl font-semibold text-slate-900">Performance</h1>
-          <span className="text-xs text-slate-500">
-            {scopeNote}
-            {benchmark ? ` · benchmark ${benchmark.ticker}` : ""}
-          </span>
-        </div>
+    <main className="mx-auto max-w-7xl space-y-8 px-6 py-8">
+      <div className="flex items-baseline justify-between">
+        <h1 className="text-2xl font-semibold text-slate-900">Performance</h1>
+        <span className="text-xs text-slate-500">
+          {scopeNote}
+          {benchmark ? ` · benchmark ${benchmark.ticker}` : ""}
+        </span>
+      </div>
 
-        <RebasedChart
-          data={rebasedData}
-          benchmarkLabel={benchmark?.ticker ?? "Benchmark"}
-        />
+      <RebasedChart
+        data={rebasedData}
+        benchmarkLabel={benchmark?.ticker ?? "Benchmark"}
+      />
 
-        <PerformanceMatrix
-          title="Returns by trust"
-          rowLabel="Trust"
-          returns={trustReturns}
-          navAtToday={trustNav}
-          indexReturns={indexReturns}
-          benchmarkLabel={benchmark?.ticker}
-        />
+      <PerformanceMatrix
+        title="Returns by trust"
+        rowLabel="Trust"
+        returns={trustReturns}
+        navAtToday={trustNav}
+        indexReturns={indexReturns}
+        benchmarkLabel={benchmark?.ticker}
+      />
 
-        <PerformanceMatrix
-          title="Returns by asset class"
-          rowLabel="Asset class"
-          returns={classReturns}
-          navAtToday={classNav}
-          indexReturns={indexReturns}
-          benchmarkLabel={benchmark?.ticker}
-          priceOnly
-        />
-      </main>
-    </>
+      <PerformanceMatrix
+        title="Returns by asset class"
+        rowLabel="Asset class"
+        returns={classReturns}
+        navAtToday={classNav}
+        indexReturns={indexReturns}
+        benchmarkLabel={benchmark?.ticker}
+        priceOnly
+      />
+    </main>
   );
 }

@@ -1,4 +1,3 @@
-import Header from "@/components/Header";
 import KpiTile from "@/components/KpiTile";
 import TransactionsTable from "@/components/TransactionsTable";
 import {
@@ -76,40 +75,37 @@ export default async function TransactionsPage({
       .join(" · ") || "All trusts under " + DEFAULT_SUB_CLIENT;
 
   return (
-    <>
-      <Header subClient={DEFAULT_SUB_CLIENT} />
-      <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
-        <div className="flex items-baseline justify-between">
-          <h1 className="text-2xl font-semibold text-slate-900">Transactions</h1>
-          <span className="text-xs text-slate-500">{scopeNote}</span>
-        </div>
+    <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+      <div className="flex items-baseline justify-between">
+        <h1 className="text-2xl font-semibold text-slate-900">Transactions</h1>
+        <span className="text-xs text-slate-500">{scopeNote}</span>
+      </div>
 
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <KpiTile
-            label="Transactions in range"
-            value={transactions.length.toLocaleString()}
-          />
-          <KpiTile label="Types" value={typeSet.size.toString()} />
-          <KpiTile
-            label="External inflows"
-            value={money(inflow, reportingCcy)}
-            tone={inflow > 0 ? "positive" : "default"}
-            hint="Deposits"
-          />
-          <KpiTile
-            label="External outflows"
-            value={money(outflow, reportingCcy)}
-            tone={outflow > 0 ? "negative" : "default"}
-            hint="Withdrawals"
-          />
-        </div>
-
-        <TransactionsTable
-          transactions={transactions}
-          from={from}
-          to={to}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <KpiTile
+          label="Transactions in range"
+          value={transactions.length.toLocaleString()}
         />
-      </main>
-    </>
+        <KpiTile label="Types" value={typeSet.size.toString()} />
+        <KpiTile
+          label="External inflows"
+          value={money(inflow, reportingCcy)}
+          tone={inflow > 0 ? "positive" : "default"}
+          hint="Deposits"
+        />
+        <KpiTile
+          label="External outflows"
+          value={money(outflow, reportingCcy)}
+          tone={outflow > 0 ? "negative" : "default"}
+          hint="Withdrawals"
+        />
+      </div>
+
+      <TransactionsTable
+        transactions={transactions}
+        from={from}
+        to={to}
+      />
+    </main>
   );
 }

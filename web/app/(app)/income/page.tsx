@@ -1,4 +1,3 @@
-import Header from "@/components/Header";
 import KpiTile from "@/components/KpiTile";
 import MonthlyIncomeChart, {
   type MonthlyIncomePoint,
@@ -201,57 +200,54 @@ export default async function IncomePage() {
       .join(" · ") || "All trusts under " + DEFAULT_SUB_CLIENT;
 
   return (
-    <>
-      <Header subClient={DEFAULT_SUB_CLIENT} />
-      <main className="mx-auto max-w-7xl space-y-8 px-6 py-8">
-        <div className="flex items-baseline justify-between">
-          <h1 className="text-2xl font-semibold text-slate-900">Income</h1>
-          <span className="text-xs text-slate-500">{scopeNote}</span>
-        </div>
+    <main className="mx-auto max-w-7xl space-y-8 px-6 py-8">
+      <div className="flex items-baseline justify-between">
+        <h1 className="text-2xl font-semibold text-slate-900">Income</h1>
+        <span className="text-xs text-slate-500">{scopeNote}</span>
+      </div>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-          <KpiTile
-            label="TTM income"
-            value={money(ttmIncome, kpis.reporting_ccy)}
-          />
-          <KpiTile
-            label="YTD income"
-            value={money(ytdIncome, kpis.reporting_ccy)}
-          />
-          <KpiTile
-            label="Last month"
-            value={money(lastMonthIncome, kpis.reporting_ccy)}
-            hint={lastMonthStart.slice(0, 7)}
-          />
-          <KpiTile
-            label="TTM yield"
-            value={ttmYield != null ? pct(ttmYield, 2) : "—"}
-            hint="TTM income / NAV"
-          />
-        </div>
-
-        <MonthlyIncomeChart
-          data={monthlySeries}
-          reportingCcy={kpis.reporting_ccy}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <KpiTile
+          label="TTM income"
+          value={money(ttmIncome, kpis.reporting_ccy)}
         />
+        <KpiTile
+          label="YTD income"
+          value={money(ytdIncome, kpis.reporting_ccy)}
+        />
+        <KpiTile
+          label="Last month"
+          value={money(lastMonthIncome, kpis.reporting_ccy)}
+          hint={lastMonthStart.slice(0, 7)}
+        />
+        <KpiTile
+          label="TTM yield"
+          value={ttmYield != null ? pct(ttmYield, 2) : "—"}
+          hint="TTM income / NAV"
+        />
+      </div>
 
+      <MonthlyIncomeChart
+        data={monthlySeries}
+        reportingCcy={kpis.reporting_ccy}
+      />
+
+      <section>
+        <div className="mb-3 flex items-baseline justify-between">
+          <h2 className="text-base font-semibold text-slate-900">Top payers (TTM)</h2>
+          <span className="text-xs text-slate-500">
+            {payerRows.length} securities · top {Math.min(15, payerRows.length)} shown
+          </span>
+        </div>
+        <TopPayersTable rows={payerRows} reportingCcy={kpis.reporting_ccy} />
+      </section>
+
+      {showByTrust ? (
         <section>
-          <div className="mb-3 flex items-baseline justify-between">
-            <h2 className="text-base font-semibold text-slate-900">Top payers (TTM)</h2>
-            <span className="text-xs text-slate-500">
-              {payerRows.length} securities · top {Math.min(15, payerRows.length)} shown
-            </span>
-          </div>
-          <TopPayersTable rows={payerRows} reportingCcy={kpis.reporting_ccy} />
+          <h2 className="mb-3 text-base font-semibold text-slate-900">Income by trust</h2>
+          <IncomeByTrustTable rows={trustRows} reportingCcy={kpis.reporting_ccy} />
         </section>
-
-        {showByTrust ? (
-          <section>
-            <h2 className="mb-3 text-base font-semibold text-slate-900">Income by trust</h2>
-            <IncomeByTrustTable rows={trustRows} reportingCcy={kpis.reporting_ccy} />
-          </section>
-        ) : null}
-      </main>
-    </>
+      ) : null}
+    </main>
   );
 }
