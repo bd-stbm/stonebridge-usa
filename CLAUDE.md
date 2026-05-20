@@ -2,6 +2,8 @@
 
 This document is the source of truth for working with the Masttro API in this project. Read it before making any API calls or writing any integration code.
 
+> **Working on the dashboard app?** See [`web/CLAUDE.md`](web/CLAUDE.md) — that file covers the Next.js stack, filter system, returns math, DB conventions, and the operational runbook. This file remains the Masttro reference and applies to ingest / exploration work under `/scripts` and `/tracker`.
+
 ---
 
 ## Project context
