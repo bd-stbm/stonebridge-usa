@@ -589,12 +589,16 @@ export async function getReconstructedNavAt(
       params,
     );
     if (error) {
-      // If migration 014 hasn't been applied yet, PostgREST can't find a
-      // function with the p_asset_class arg and returns PGRST202. Don't
-      // crash the page in that window — fall back to null so the caller
-      // uses the snapshot-grid path. Re-throw any other error.
-      if (assetClass !== undefined && (error.code === "PGRST202" || /asset_class/i.test(error.message))) {
-        console.log(`[q] ${label} fallback: ${error.message}`);
+      // Shape problems with the RPC are recoverable — the caller treats
+      // a null start NAV as "fall back to the snapshot grid" rather than
+      // crashing the page. Catch:
+      //   PGRST202 — function not found (migration not applied yet)
+      //   PGRST203 — overload ambiguity (a stale signature wasn't dropped,
+      //              e.g. between migrations 014 and 015)
+      // Re-throw anything else so real bugs still surface.
+      const code = (error as { code?: string }).code;
+      if (code === "PGRST202" || code === "PGRST203") {
+        console.log(`[q] ${label} fallback: ${code} ${error.message}`);
         return null;
       }
       throw error;
