@@ -16,6 +16,29 @@ import {
 // at the server's cap.
 const LIMIT_LARGE = 100000;
 
+// Per-query timing wrapper. Logs `[q] <label> <ms>ms (<rows> rows)` to
+// stdout — picked up by Vercel function logs. Wraps every exported query
+// in this file so we can compare wall-clock costs after a filter change.
+// Opt out by setting QUERY_TIMING=0 in the environment.
+async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  if (process.env.QUERY_TIMING === "0") return fn();
+  const t0 = Date.now();
+  try {
+    const result = await fn();
+    const ms = Date.now() - t0;
+    const size = Array.isArray(result)
+      ? `${result.length} rows`
+      : result && typeof result === "object"
+        ? `${Object.keys(result).length} keys`
+        : "scalar";
+    console.log(`[q] ${label} ${ms}ms (${size})`);
+    return result;
+  } catch (err) {
+    console.log(`[q] ${label} ERR after ${Date.now() - t0}ms`);
+    throw err;
+  }
+}
+
 export const DEFAULT_SUB_CLIENT = "Dyne Family (US)";
 
 export interface Position {
@@ -65,14 +88,16 @@ export interface Kpis {
 }
 
 export async function listSubClients(): Promise<string[]> {
-  const { data, error } = await getSupabaseServer()
-    .from("entity_attribution")
-    .select("sub_client_alias")
-    .not("sub_client_alias", "is", null)
-    .limit(LIMIT_LARGE);
-  if (error) throw error;
-  const rows = (data ?? []) as unknown as Array<{ sub_client_alias: string }>;
-  return Array.from(new Set(rows.map(r => r.sub_client_alias))).sort();
+  return timed("listSubClients", async () => {
+    const { data, error } = await getSupabaseServer()
+      .from("entity_attribution")
+      .select("sub_client_alias")
+      .not("sub_client_alias", "is", null)
+      .limit(LIMIT_LARGE);
+    if (error) throw error;
+    const rows = (data ?? []) as unknown as Array<{ sub_client_alias: string }>;
+    return Array.from(new Set(rows.map(r => r.sub_client_alias))).sort();
+  });
 }
 
 export interface AccountOption {
@@ -86,55 +111,59 @@ export async function listAccounts(
   subClient: string = DEFAULT_SUB_CLIENT,
   trusts: string[] = [],
 ): Promise<AccountOption[]> {
-  // Source from v_latest_positions so we only get accounts that actually
-  // hold positions in the latest snapshot. Multiple rows per account get
-  // deduped in JS.
-  let q = getSupabaseServer()
-    .from("v_latest_positions")
-    .select("account_node_id, account_alias, custodian, trust_alias")
-    .eq("sub_client_alias", subClient);
-  if (trusts.length) q = q.in("trust_alias", trusts);
-  const { data, error } = await q.limit(LIMIT_LARGE);
-  if (error) throw error;
-  const rows = (data ?? []) as unknown as Array<{
-    account_node_id: string;
-    account_alias: string | null;
-    custodian: string | null;
-    trust_alias: string | null;
-  }>;
-  const seen = new Set<string>();
-  const accounts: AccountOption[] = [];
-  for (const r of rows) {
-    if (seen.has(r.account_node_id)) continue;
-    seen.add(r.account_node_id);
-    accounts.push({
-      node_id: r.account_node_id,
-      alias: r.account_alias ?? r.account_node_id,
-      custodian: r.custodian,
-      trust_alias: r.trust_alias,
-    });
-  }
-  return accounts.sort((a, b) => a.alias.localeCompare(b.alias));
+  return timed(`listAccounts(${trusts.length}t)`, async () => {
+    // Source from v_latest_positions so we only get accounts that actually
+    // hold positions in the latest snapshot. Multiple rows per account get
+    // deduped in JS.
+    let q = getSupabaseServer()
+      .from("v_latest_positions")
+      .select("account_node_id, account_alias, custodian, trust_alias")
+      .eq("sub_client_alias", subClient);
+    if (trusts.length) q = q.in("trust_alias", trusts);
+    const { data, error } = await q.limit(LIMIT_LARGE);
+    if (error) throw error;
+    const rows = (data ?? []) as unknown as Array<{
+      account_node_id: string;
+      account_alias: string | null;
+      custodian: string | null;
+      trust_alias: string | null;
+    }>;
+    const seen = new Set<string>();
+    const accounts: AccountOption[] = [];
+    for (const r of rows) {
+      if (seen.has(r.account_node_id)) continue;
+      seen.add(r.account_node_id);
+      accounts.push({
+        node_id: r.account_node_id,
+        alias: r.account_alias ?? r.account_node_id,
+        custodian: r.custodian,
+        trust_alias: r.trust_alias,
+      });
+    }
+    return accounts.sort((a, b) => a.alias.localeCompare(b.alias));
+  });
 }
 
 export async function listTrusts(
   subClient: string = DEFAULT_SUB_CLIENT,
 ): Promise<string[]> {
-  // Query v_latest_positions rather than entity_attribution so we only
-  // surface trusts that actually hold positions in the latest snapshot.
-  // entity_attribution includes every node whose ancestor name matches
-  // the substring "trust", which catches LLCs like "Deltrust LLC" and
-  // other non-position-holding shells. Real fix is at sync-level, but
-  // this filter keeps the dropdown clean either way.
-  const { data, error } = await getSupabaseServer()
-    .from("v_latest_positions")
-    .select("trust_alias")
-    .eq("sub_client_alias", subClient)
-    .not("trust_alias", "is", null)
-    .limit(LIMIT_LARGE);
-  if (error) throw error;
-  const rows = (data ?? []) as unknown as Array<{ trust_alias: string }>;
-  return Array.from(new Set(rows.map(r => r.trust_alias))).sort();
+  return timed("listTrusts", async () => {
+    // Query v_latest_positions rather than entity_attribution so we only
+    // surface trusts that actually hold positions in the latest snapshot.
+    // entity_attribution includes every node whose ancestor name matches
+    // the substring "trust", which catches LLCs like "Deltrust LLC" and
+    // other non-position-holding shells. Real fix is at sync-level, but
+    // this filter keeps the dropdown clean either way.
+    const { data, error } = await getSupabaseServer()
+      .from("v_latest_positions")
+      .select("trust_alias")
+      .eq("sub_client_alias", subClient)
+      .not("trust_alias", "is", null)
+      .limit(LIMIT_LARGE);
+    if (error) throw error;
+    const rows = (data ?? []) as unknown as Array<{ trust_alias: string }>;
+    return Array.from(new Set(rows.map(r => r.trust_alias))).sort();
+  });
 }
 
 export async function getLatestPositions(
@@ -142,31 +171,33 @@ export async function getLatestPositions(
   trusts: string[] = [],
   accounts: string[] = [],
 ): Promise<Position[]> {
-  // Query v_positions_refreshed (joins yfinance via pricing_refresh) so the
-  // NAV figures throughout the dashboard reflect today's market price when
-  // yfinance has the security. PostgREST alias `mv_reporting:mv_reporting_refreshed`
-  // renames the refreshed column to mv_reporting so every consumer of Position
-  // (Overview NAV, Holdings table, computeKpis) picks up the refreshed value
-  // without a per-call change. mv_reporting_yesterday is exposed separately
-  // for the 1D return.
-  let q = getSupabaseServer()
-    .from("v_positions_refreshed")
-    .select(
-      "account_alias, custodian, trust_alias, asset_name, asset_class, " +
-        "security_type, sector, ticker_masttro, isin, local_ccy, quantity, " +
-        "price_local, yf_price, mv_local, " +
-        "mv_reporting:mv_reporting_refreshed, mv_reporting_yesterday, " +
-        "reporting_ccy, unit_cost_local, total_cost_local, " +
-        "unrealized_gl_local",
-    )
-    .eq("sub_client_alias", subClient);
-  if (trusts.length) q = q.in("trust_alias", trusts);
-  if (accounts.length) q = q.in("account_node_id", accounts);
-  const { data, error } = await q
-    .order("mv_reporting_refreshed", { ascending: false, nullsFirst: false })
-    .limit(LIMIT_LARGE);
-  if (error) throw error;
-  return (data ?? []) as unknown as Position[];
+  return timed(`getLatestPositions(${trusts.length}t,${accounts.length}a)`, async () => {
+    // Query v_positions_refreshed (joins yfinance via pricing_refresh) so the
+    // NAV figures throughout the dashboard reflect today's market price when
+    // yfinance has the security. PostgREST alias `mv_reporting:mv_reporting_refreshed`
+    // renames the refreshed column to mv_reporting so every consumer of Position
+    // (Overview NAV, Holdings table, computeKpis) picks up the refreshed value
+    // without a per-call change. mv_reporting_yesterday is exposed separately
+    // for the 1D return.
+    let q = getSupabaseServer()
+      .from("v_positions_refreshed")
+      .select(
+        "account_alias, custodian, trust_alias, asset_name, asset_class, " +
+          "security_type, sector, ticker_masttro, isin, local_ccy, quantity, " +
+          "price_local, yf_price, mv_local, " +
+          "mv_reporting:mv_reporting_refreshed, mv_reporting_yesterday, " +
+          "reporting_ccy, unit_cost_local, total_cost_local, " +
+          "unrealized_gl_local",
+      )
+      .eq("sub_client_alias", subClient);
+    if (trusts.length) q = q.in("trust_alias", trusts);
+    if (accounts.length) q = q.in("account_node_id", accounts);
+    const { data, error } = await q
+      .order("mv_reporting_refreshed", { ascending: false, nullsFirst: false })
+      .limit(LIMIT_LARGE);
+    if (error) throw error;
+    return (data ?? []) as unknown as Position[];
+  });
 }
 
 export async function getNavSeries(
@@ -174,31 +205,33 @@ export async function getNavSeries(
   trusts: string[] = [],
   accounts: string[] = [],
 ): Promise<NavPoint[]> {
-  let q = getSupabaseServer()
-    .from("v_nav_monthly_by_account")
-    .select("snapshot_date, nav_reporting")
-    .eq("sub_client_alias", subClient);
-  if (trusts.length) q = q.in("trust_alias", trusts);
-  if (accounts.length) q = q.in("account_node_id", accounts);
-  const { data, error } = await q.limit(LIMIT_LARGE);
-  if (error) throw error;
+  return timed(`getNavSeries(${trusts.length}t,${accounts.length}a)`, async () => {
+    let q = getSupabaseServer()
+      .from("v_nav_monthly_by_account")
+      .select("snapshot_date, nav_reporting")
+      .eq("sub_client_alias", subClient);
+    if (trusts.length) q = q.in("trust_alias", trusts);
+    if (accounts.length) q = q.in("account_node_id", accounts);
+    const { data, error } = await q.limit(LIMIT_LARGE);
+    if (error) throw error;
 
-  // Aggregate per snapshot_date across accounts in JS — PostgREST doesn't
-  // expose SUM/GROUP BY without an RPC, and the row count is small.
-  const rows = (data ?? []) as unknown as Array<{
-    snapshot_date: string;
-    nav_reporting: number | null;
-  }>;
-  const byDate = new Map<string, number>();
-  for (const row of rows) {
-    byDate.set(
-      row.snapshot_date,
-      (byDate.get(row.snapshot_date) ?? 0) + Number(row.nav_reporting ?? 0),
-    );
-  }
-  return Array.from(byDate.entries())
-    .map(([snapshot_date, nav]) => ({ snapshot_date, nav }))
-    .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+    // Aggregate per snapshot_date across accounts in JS — PostgREST doesn't
+    // expose SUM/GROUP BY without an RPC, and the row count is small.
+    const rows = (data ?? []) as unknown as Array<{
+      snapshot_date: string;
+      nav_reporting: number | null;
+    }>;
+    const byDate = new Map<string, number>();
+    for (const row of rows) {
+      byDate.set(
+        row.snapshot_date,
+        (byDate.get(row.snapshot_date) ?? 0) + Number(row.nav_reporting ?? 0),
+      );
+    }
+    return Array.from(byDate.entries())
+      .map(([snapshot_date, nav]) => ({ snapshot_date, nav }))
+      .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+  });
 }
 
 export interface PeriodReturnOverrides {
@@ -225,43 +258,45 @@ export async function getPeriodReturns(
   accounts: string[] = [],
   overrides: PeriodReturnOverrides = {},
 ): Promise<Record<PeriodKey, PeriodReturn>> {
-  const navs =
-    overrides.navs ?? (await getNavSeries(subClient, trusts, accounts));
-  if (navs.length === 0) {
-    return computeAllPeriodReturns([], [], overrides);
-  }
+  return timed(`getPeriodReturns(${trusts.length}t,${accounts.length}a)`, async () => {
+    const navs =
+      overrides.navs ?? (await getNavSeries(subClient, trusts, accounts));
+    if (navs.length === 0) {
+      return computeAllPeriodReturns([], [], overrides);
+    }
 
-  // Pull external flows back to the earliest NAV date. PostgREST filters
-  // can't see our app-level cookie; we filter by date/scope here.
-  const earliest = navs[0].snapshot_date;
-  let q = getSupabaseServer()
-    .from("v_external_flows")
-    .select(
-      "transaction_date, net_amount_reporting, trust_alias, " +
-        "sub_client_alias, account_node_id",
-    )
-    .eq("sub_client_alias", subClient)
-    .gte("transaction_date", earliest);
-  if (trusts.length) q = q.in("trust_alias", trusts);
-  if (accounts.length) q = q.in("account_node_id", accounts);
-  const { data, error } = await q.limit(LIMIT_LARGE);
-  if (error) throw error;
+    // Pull external flows back to the earliest NAV date. PostgREST filters
+    // can't see our app-level cookie; we filter by date/scope here.
+    const earliest = navs[0].snapshot_date;
+    let q = getSupabaseServer()
+      .from("v_external_flows")
+      .select(
+        "transaction_date, net_amount_reporting, trust_alias, " +
+          "sub_client_alias, account_node_id",
+      )
+      .eq("sub_client_alias", subClient)
+      .gte("transaction_date", earliest);
+    if (trusts.length) q = q.in("trust_alias", trusts);
+    if (accounts.length) q = q.in("account_node_id", accounts);
+    const { data, error } = await q.limit(LIMIT_LARGE);
+    if (error) throw error;
 
-  const flowRows = (data ?? []) as unknown as Array<{
-    transaction_date: string;
-    net_amount_reporting: number | null;
-  }>;
-  const flows: Flow[] = flowRows.map(r => ({
-    date: r.transaction_date,
-    amount: Number(r.net_amount_reporting ?? 0),
-  }));
+    const flowRows = (data ?? []) as unknown as Array<{
+      transaction_date: string;
+      net_amount_reporting: number | null;
+    }>;
+    const flows: Flow[] = flowRows.map(r => ({
+      date: r.transaction_date,
+      amount: Number(r.net_amount_reporting ?? 0),
+    }));
 
-  const navPoints: DietzNavPoint[] = navs.map(n => ({
-    date: n.snapshot_date,
-    nav: n.nav,
-  }));
+    const navPoints: DietzNavPoint[] = navs.map(n => ({
+      date: n.snapshot_date,
+      nav: n.nav,
+    }));
 
-  return computeAllPeriodReturns(navPoints, flows, overrides);
+    return computeAllPeriodReturns(navPoints, flows, overrides);
+  });
 }
 
 export async function getNavSeriesByTrust(
@@ -269,46 +304,48 @@ export async function getNavSeriesByTrust(
   trusts: string[] = [],
   accounts: string[] = [],
 ): Promise<Record<string, NavPoint[]>> {
-  // Per-(snapshot_date, account) NAV rows from v_nav_monthly_by_account,
-  // aggregated by trust_alias in JS for the Performance page's matrix.
-  // When global trust filter is set we get one trust back; when null we get
-  // all trusts under the sub-client.
-  let q = getSupabaseServer()
-    .from("v_nav_monthly_by_account")
-    .select("snapshot_date, trust_alias, nav_reporting")
-    .eq("sub_client_alias", subClient)
-    .not("trust_alias", "is", null);
-  if (trusts.length) q = q.in("trust_alias", trusts);
-  if (accounts.length) q = q.in("account_node_id", accounts);
-  const { data, error } = await q.limit(LIMIT_LARGE);
-  if (error) throw error;
+  return timed(`getNavSeriesByTrust(${trusts.length}t,${accounts.length}a)`, async () => {
+    // Per-(snapshot_date, account) NAV rows from v_nav_monthly_by_account,
+    // aggregated by trust_alias in JS for the Performance page's matrix.
+    // When global trust filter is set we get one trust back; when null we get
+    // all trusts under the sub-client.
+    let q = getSupabaseServer()
+      .from("v_nav_monthly_by_account")
+      .select("snapshot_date, trust_alias, nav_reporting")
+      .eq("sub_client_alias", subClient)
+      .not("trust_alias", "is", null);
+    if (trusts.length) q = q.in("trust_alias", trusts);
+    if (accounts.length) q = q.in("account_node_id", accounts);
+    const { data, error } = await q.limit(LIMIT_LARGE);
+    if (error) throw error;
 
-  const rows = (data ?? []) as unknown as Array<{
-    snapshot_date: string;
-    trust_alias: string;
-    nav_reporting: number | null;
-  }>;
+    const rows = (data ?? []) as unknown as Array<{
+      snapshot_date: string;
+      trust_alias: string;
+      nav_reporting: number | null;
+    }>;
 
-  const byTrust: Map<string, Map<string, number>> = new Map();
-  for (const r of rows) {
-    let dateMap = byTrust.get(r.trust_alias);
-    if (!dateMap) {
-      dateMap = new Map();
-      byTrust.set(r.trust_alias, dateMap);
+    const byTrust: Map<string, Map<string, number>> = new Map();
+    for (const r of rows) {
+      let dateMap = byTrust.get(r.trust_alias);
+      if (!dateMap) {
+        dateMap = new Map();
+        byTrust.set(r.trust_alias, dateMap);
+      }
+      dateMap.set(
+        r.snapshot_date,
+        (dateMap.get(r.snapshot_date) ?? 0) + Number(r.nav_reporting ?? 0),
+      );
     }
-    dateMap.set(
-      r.snapshot_date,
-      (dateMap.get(r.snapshot_date) ?? 0) + Number(r.nav_reporting ?? 0),
-    );
-  }
 
-  const result: Record<string, NavPoint[]> = {};
-  for (const [trustAlias, dateMap] of byTrust.entries()) {
-    result[trustAlias] = Array.from(dateMap.entries())
-      .map(([snapshot_date, nav]) => ({ snapshot_date, nav }))
-      .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
-  }
-  return result;
+    const result: Record<string, NavPoint[]> = {};
+    for (const [trustAlias, dateMap] of byTrust.entries()) {
+      result[trustAlias] = Array.from(dateMap.entries())
+        .map(([snapshot_date, nav]) => ({ snapshot_date, nav }))
+        .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+    }
+    return result;
+  });
 }
 
 export async function getFlowsByTrust(
@@ -317,32 +354,34 @@ export async function getFlowsByTrust(
   accounts: string[] = [],
   fromDate: string = "2020-01-01",
 ): Promise<Record<string, Flow[]>> {
-  let q = getSupabaseServer()
-    .from("v_external_flows")
-    .select("transaction_date, net_amount_reporting, trust_alias")
-    .eq("sub_client_alias", subClient)
-    .gte("transaction_date", fromDate)
-    .not("trust_alias", "is", null);
-  if (trusts.length) q = q.in("trust_alias", trusts);
-  if (accounts.length) q = q.in("account_node_id", accounts);
-  const { data, error } = await q.limit(LIMIT_LARGE);
-  if (error) throw error;
+  return timed(`getFlowsByTrust(${trusts.length}t,${accounts.length}a)`, async () => {
+    let q = getSupabaseServer()
+      .from("v_external_flows")
+      .select("transaction_date, net_amount_reporting, trust_alias")
+      .eq("sub_client_alias", subClient)
+      .gte("transaction_date", fromDate)
+      .not("trust_alias", "is", null);
+    if (trusts.length) q = q.in("trust_alias", trusts);
+    if (accounts.length) q = q.in("account_node_id", accounts);
+    const { data, error } = await q.limit(LIMIT_LARGE);
+    if (error) throw error;
 
-  const rows = (data ?? []) as unknown as Array<{
-    transaction_date: string;
-    net_amount_reporting: number | null;
-    trust_alias: string;
-  }>;
+    const rows = (data ?? []) as unknown as Array<{
+      transaction_date: string;
+      net_amount_reporting: number | null;
+      trust_alias: string;
+    }>;
 
-  const out: Record<string, Flow[]> = {};
-  for (const r of rows) {
-    if (!out[r.trust_alias]) out[r.trust_alias] = [];
-    out[r.trust_alias].push({
-      date: r.transaction_date,
-      amount: Number(r.net_amount_reporting ?? 0),
-    });
-  }
-  return out;
+    const out: Record<string, Flow[]> = {};
+    for (const r of rows) {
+      if (!out[r.trust_alias]) out[r.trust_alias] = [];
+      out[r.trust_alias].push({
+        date: r.transaction_date,
+        amount: Number(r.net_amount_reporting ?? 0),
+      });
+    }
+    return out;
+  });
 }
 
 export async function getNavSeriesByAssetClass(
@@ -350,44 +389,46 @@ export async function getNavSeriesByAssetClass(
   trusts: string[] = [],
   accounts: string[] = [],
 ): Promise<Record<string, NavPoint[]>> {
-  // Per-(snapshot_date, account, asset_class) rows from the view. We
-  // aggregate across accounts in JS, keyed by asset_class, to get one NAV
-  // series per class for the Returns tile's split-by-class dropdown.
-  let q = getSupabaseServer()
-    .from("v_nav_monthly_by_asset_class")
-    .select("snapshot_date, asset_class, nav_reporting")
-    .eq("sub_client_alias", subClient);
-  if (trusts.length) q = q.in("trust_alias", trusts);
-  if (accounts.length) q = q.in("account_node_id", accounts);
-  const { data, error } = await q.limit(LIMIT_LARGE);
-  if (error) throw error;
+  return timed(`getNavSeriesByAssetClass(${trusts.length}t,${accounts.length}a)`, async () => {
+    // Per-(snapshot_date, account, asset_class) rows from the view. We
+    // aggregate across accounts in JS, keyed by asset_class, to get one NAV
+    // series per class for the Returns tile's split-by-class dropdown.
+    let q = getSupabaseServer()
+      .from("v_nav_monthly_by_asset_class")
+      .select("snapshot_date, asset_class, nav_reporting")
+      .eq("sub_client_alias", subClient);
+    if (trusts.length) q = q.in("trust_alias", trusts);
+    if (accounts.length) q = q.in("account_node_id", accounts);
+    const { data, error } = await q.limit(LIMIT_LARGE);
+    if (error) throw error;
 
-  const rows = (data ?? []) as unknown as Array<{
-    snapshot_date: string;
-    asset_class: string;
-    nav_reporting: number | null;
-  }>;
+    const rows = (data ?? []) as unknown as Array<{
+      snapshot_date: string;
+      asset_class: string;
+      nav_reporting: number | null;
+    }>;
 
-  const byClass: Map<string, Map<string, number>> = new Map();
-  for (const r of rows) {
-    let dateMap = byClass.get(r.asset_class);
-    if (!dateMap) {
-      dateMap = new Map();
-      byClass.set(r.asset_class, dateMap);
+    const byClass: Map<string, Map<string, number>> = new Map();
+    for (const r of rows) {
+      let dateMap = byClass.get(r.asset_class);
+      if (!dateMap) {
+        dateMap = new Map();
+        byClass.set(r.asset_class, dateMap);
+      }
+      dateMap.set(
+        r.snapshot_date,
+        (dateMap.get(r.snapshot_date) ?? 0) + Number(r.nav_reporting ?? 0),
+      );
     }
-    dateMap.set(
-      r.snapshot_date,
-      (dateMap.get(r.snapshot_date) ?? 0) + Number(r.nav_reporting ?? 0),
-    );
-  }
 
-  const result: Record<string, NavPoint[]> = {};
-  for (const [ac, dateMap] of byClass.entries()) {
-    result[ac] = Array.from(dateMap.entries())
-      .map(([snapshot_date, nav]) => ({ snapshot_date, nav }))
-      .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
-  }
-  return result;
+    const result: Record<string, NavPoint[]> = {};
+    for (const [ac, dateMap] of byClass.entries()) {
+      result[ac] = Array.from(dateMap.entries())
+        .map(([snapshot_date, nav]) => ({ snapshot_date, nav }))
+        .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+    }
+    return result;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -414,24 +455,26 @@ export async function getIncomeRows(
   accounts: string[] = [],
   fromDate: string = "2020-01-01",
 ): Promise<IncomeRow[]> {
-  let q = getSupabaseServer()
-    .from("v_income_monthly")
-    .select(
-      "month, account_node_id, account_alias, trust_alias, security_id, " +
-        "asset_name, asset_class, ticker_masttro, transaction_type, " +
-        "reporting_ccy, amount",
-    )
-    .eq("sub_client_alias", subClient)
-    .gte("month", fromDate)
-    .order("month", { ascending: true });
-  if (trusts.length) q = q.in("trust_alias", trusts);
-  if (accounts.length) q = q.in("account_node_id", accounts);
-  const { data, error } = await q.limit(LIMIT_LARGE);
-  if (error) throw error;
-  const rows = (data ?? []) as unknown as Array<
-    Omit<IncomeRow, "amount"> & { amount: number | string | null }
-  >;
-  return rows.map(r => ({ ...r, amount: Number(r.amount ?? 0) }));
+  return timed(`getIncomeRows(${trusts.length}t,${accounts.length}a)`, async () => {
+    let q = getSupabaseServer()
+      .from("v_income_monthly")
+      .select(
+        "month, account_node_id, account_alias, trust_alias, security_id, " +
+          "asset_name, asset_class, ticker_masttro, transaction_type, " +
+          "reporting_ccy, amount",
+      )
+      .eq("sub_client_alias", subClient)
+      .gte("month", fromDate)
+      .order("month", { ascending: true });
+    if (trusts.length) q = q.in("trust_alias", trusts);
+    if (accounts.length) q = q.in("account_node_id", accounts);
+    const { data, error } = await q.limit(LIMIT_LARGE);
+    if (error) throw error;
+    const rows = (data ?? []) as unknown as Array<
+      Omit<IncomeRow, "amount"> & { amount: number | string | null }
+    >;
+    return rows.map(r => ({ ...r, amount: Number(r.amount ?? 0) }));
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -467,24 +510,26 @@ export async function getTransactions(
   fromDate: string = "2020-01-01",
   toDate: string | null = null,
 ): Promise<Transaction[]> {
-  let q = getSupabaseServer()
-    .from("v_transactions")
-    .select(
-      "transaction_id, transaction_date, account_node_id, account_alias, " +
-        "custodian, trust_alias, security_id, asset_name, asset_class, " +
-        "ticker_masttro, transaction_type_clean, comments, quantity, " +
-        "net_price_local, net_amount_local, net_amount_reporting, " +
-        "local_ccy, reporting_ccy, is_external_flow",
-    )
-    .eq("sub_client_alias", subClient)
-    .gte("transaction_date", fromDate)
-    .order("transaction_date", { ascending: false });
-  if (toDate) q = q.lte("transaction_date", toDate);
-  if (trusts.length) q = q.in("trust_alias", trusts);
-  if (accounts.length) q = q.in("account_node_id", accounts);
-  const { data, error } = await q.limit(LIMIT_LARGE);
-  if (error) throw error;
-  return (data ?? []) as unknown as Transaction[];
+  return timed(`getTransactions(${trusts.length}t,${accounts.length}a)`, async () => {
+    let q = getSupabaseServer()
+      .from("v_transactions")
+      .select(
+        "transaction_id, transaction_date, account_node_id, account_alias, " +
+          "custodian, trust_alias, security_id, asset_name, asset_class, " +
+          "ticker_masttro, transaction_type_clean, comments, quantity, " +
+          "net_price_local, net_amount_local, net_amount_reporting, " +
+          "local_ccy, reporting_ccy, is_external_flow",
+      )
+      .eq("sub_client_alias", subClient)
+      .gte("transaction_date", fromDate)
+      .order("transaction_date", { ascending: false });
+    if (toDate) q = q.lte("transaction_date", toDate);
+    if (trusts.length) q = q.in("trust_alias", trusts);
+    if (accounts.length) q = q.in("account_node_id", accounts);
+    const { data, error } = await q.limit(LIMIT_LARGE);
+    if (error) throw error;
+    return (data ?? []) as unknown as Transaction[];
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -497,12 +542,14 @@ export interface IndexOption {
 }
 
 export async function listIndices(): Promise<IndexOption[]> {
-  const { data, error } = await getSupabaseServer()
-    .from("index_definition")
-    .select("ticker, name")
-    .order("ticker");
-  if (error) throw error;
-  return (data ?? []) as unknown as IndexOption[];
+  return timed("listIndices", async () => {
+    const { data, error } = await getSupabaseServer()
+      .from("index_definition")
+      .select("ticker, name")
+      .order("ticker");
+    if (error) throw error;
+    return (data ?? []) as unknown as IndexOption[];
+  });
 }
 
 /**
@@ -516,38 +563,42 @@ export async function getReconstructedNavAt(
   accounts: string[],
   targetDate: string,
 ): Promise<number | null> {
-  const { data, error } = await getSupabaseServer().rpc(
-    "reconstructed_nav_at",
-    {
-      p_sub_client: subClient,
-      p_trusts: trusts.length ? trusts : null,
-      p_accounts: accounts.length ? accounts : null,
-      p_target_date: targetDate,
-    },
-  );
-  if (error) throw error;
-  if (data == null) return null;
-  const n = Number(data);
-  return Number.isFinite(n) ? n : null;
+  return timed(`reconstructed_nav_at(${targetDate})`, async () => {
+    const { data, error } = await getSupabaseServer().rpc(
+      "reconstructed_nav_at",
+      {
+        p_sub_client: subClient,
+        p_trusts: trusts.length ? trusts : null,
+        p_accounts: accounts.length ? accounts : null,
+        p_target_date: targetDate,
+      },
+    );
+    if (error) throw error;
+    if (data == null) return null;
+    const n = Number(data);
+    return Number.isFinite(n) ? n : null;
+  });
 }
 
 export async function getIndexPrices(
   ticker: string,
   fromDate: string,
 ): Promise<IndexPricePoint[]> {
-  const { data, error } = await getSupabaseServer()
-    .from("index_price_history")
-    .select("price_date, close")
-    .eq("ticker", ticker)
-    .gte("price_date", fromDate)
-    .order("price_date", { ascending: true })
-    .limit(LIMIT_LARGE);
-  if (error) throw error;
-  const rows = (data ?? []) as unknown as Array<{
-    price_date: string;
-    close: number | string;
-  }>;
-  return rows.map(r => ({ date: r.price_date, price: Number(r.close) }));
+  return timed(`getIndexPrices(${ticker})`, async () => {
+    const { data, error } = await getSupabaseServer()
+      .from("index_price_history")
+      .select("price_date, close")
+      .eq("ticker", ticker)
+      .gte("price_date", fromDate)
+      .order("price_date", { ascending: true })
+      .limit(LIMIT_LARGE);
+    if (error) throw error;
+    const rows = (data ?? []) as unknown as Array<{
+      price_date: string;
+      close: number | string;
+    }>;
+    return rows.map(r => ({ date: r.price_date, price: Number(r.close) }));
+  });
 }
 
 export function computeKpis(positions: Position[]): Kpis {

@@ -31,6 +31,7 @@ import { money } from "@/lib/format";
 export const dynamic = "force-dynamic";
 
 export default async function OverviewPage() {
+  const _renderStart = Date.now();
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
   const benchmarkTicker = getSelectedBenchmark();
@@ -148,6 +149,11 @@ export default async function OverviewPage() {
 
   const navFromHistory =
     navSeries.length > 0 ? navSeries[navSeries.length - 1].nav : null;
+
+  console.log(
+    `[page] Overview total ${Date.now() - _renderStart}ms ` +
+      `(${trusts.length}t,${accounts.length}a)`,
+  );
 
   return (
     <>
