@@ -209,6 +209,10 @@ export interface PeriodReturnOverrides {
   // Today's positions valued at yfinance previous-close. Used as the start
   // NAV for the 1D return so it reflects pure intraday price movement.
   endNavYesterday?: number;
+  // Precise per-period start NAVs (and the actual date used). Populated
+  // from the reconstructed_nav_at RPC for periods that need date precision
+  // (currently 6M and 1Y).
+  startNavByPeriod?: Partial<Record<PeriodKey, { nav: number; date: string }>>;
 }
 
 export async function getPeriodReturns(
@@ -496,6 +500,32 @@ export async function listIndices(): Promise<IndexOption[]> {
     .order("ticker");
   if (error) throw error;
   return (data ?? []) as unknown as IndexOption[];
+}
+
+/**
+ * Precise historical NAV at p_target_date, via the reconstructed_nav_at
+ * RPC. Returns null when no snapshot exists on or before the target — the
+ * caller should fall back to the snapshot-grid approximation in that case.
+ */
+export async function getReconstructedNavAt(
+  subClient: string,
+  trusts: string[],
+  accounts: string[],
+  targetDate: string,
+): Promise<number | null> {
+  const { data, error } = await getSupabaseServer().rpc(
+    "reconstructed_nav_at",
+    {
+      p_sub_client: subClient,
+      p_trusts: trusts.length ? trusts : null,
+      p_accounts: accounts.length ? accounts : null,
+      p_target_date: targetDate,
+    },
+  );
+  if (error) throw error;
+  if (data == null) return null;
+  const n = Number(data);
+  return Number.isFinite(n) ? n : null;
 }
 
 export async function getIndexPrices(

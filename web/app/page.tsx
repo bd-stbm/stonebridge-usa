@@ -11,6 +11,7 @@ import {
   getNavSeries,
   getNavSeriesByAssetClass,
   getPeriodReturns,
+  getReconstructedNavAt,
   listIndices,
 } from "@/lib/queries";
 import {
@@ -21,6 +22,7 @@ import {
 import {
   computeAllPeriodReturns,
   computeIndexReturnsForAllPeriods,
+  computePeriodStart,
   type PeriodKey,
   type PeriodReturn,
 } from "@/lib/returns";
@@ -52,9 +54,24 @@ export default async function OverviewPage() {
       s + Number(p.mv_reporting_yesterday ?? p.mv_reporting ?? 0),
     0,
   );
+  // Precise 6M and 1Y start NAVs via the reconstructed_nav_at RPC. Other
+  // periods (1D / MTD / YTD) already align to dates we have exactly, so
+  // we leave them on the snapshot-grid path.
+  const today = new Date();
+  const target6M = computePeriodStart("6m", today);
+  const target1Y = computePeriodStart("1y", today);
+  const [nav6M, nav1Y] = await Promise.all([
+    getReconstructedNavAt(DEFAULT_SUB_CLIENT, trusts, accounts, target6M),
+    getReconstructedNavAt(DEFAULT_SUB_CLIENT, trusts, accounts, target1Y),
+  ]);
+  const startNavByPeriod: Partial<Record<PeriodKey, { nav: number; date: string }>> = {};
+  if (nav6M != null) startNavByPeriod["6m"] = { nav: nav6M, date: target6M };
+  if (nav1Y != null) startNavByPeriod["1y"] = { nav: nav1Y, date: target1Y };
+
   const returns = await getPeriodReturns(DEFAULT_SUB_CLIENT, trusts, accounts, {
     endNav,
     endNavYesterday,
+    startNavByPeriod,
   });
 
   // Pull benchmark price history starting from the earliest portfolio snapshot
@@ -113,12 +130,12 @@ export default async function OverviewPage() {
   // on the same number as the NAV tile (which is yfinance-priced). If the
   // latest Masttro snapshot is before today, append a new point for today;
   // if it's today already, overwrite that point's value.
-  const today = new Date().toISOString().slice(0, 10);
+  const todayIso = today.toISOString().slice(0, 10);
   const chartData = (() => {
     if (navSeries.length === 0) return navSeries;
     const last = navSeries[navSeries.length - 1];
-    if (last.snapshot_date < today) {
-      return [...navSeries, { snapshot_date: today, nav: endNav }];
+    if (last.snapshot_date < todayIso) {
+      return [...navSeries, { snapshot_date: todayIso, nav: endNav }];
     }
     return [
       ...navSeries.slice(0, -1),

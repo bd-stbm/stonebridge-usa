@@ -85,6 +85,11 @@ export interface ReturnOverrides {
   // flow adjustment — 1-day-overnight flows are usually nil and including
   // them double-counts since both sides hold the same position quantity).
   endNavYesterday?: number;
+  // Per-period precise start NAV (and the actual date used). Overrides the
+  // nearestOnOrBefore lookup against the snapshot grid. Populated from the
+  // reconstructed_nav_at RPC for 6M / 1Y so those returns reflect the
+  // exact target date instead of snapping to month-end.
+  startNavByPeriod?: Partial<Record<PeriodKey, { nav: number; date: string }>>;
 }
 
 export function computePeriodReturn(
@@ -136,6 +141,30 @@ export function computePeriodReturn(
     };
   }
 
+  // Precise start NAV via reconstruction (if provided). Bypasses the
+  // snapshot-grid snap entirely so 6M / 1Y use exact target dates.
+  const startOverride = overrides.startNavByPeriod?.[period];
+  if (startOverride && startOverride.date < endDate) {
+    let periodFlows = 0;
+    for (const f of flows) {
+      if (f.date > startOverride.date && f.date <= endDate) {
+        periodFlows += f.amount;
+      }
+    }
+    const gain = endNav - startOverride.nav - periodFlows;
+    const denom = startOverride.nav + 0.5 * periodFlows;
+    return {
+      period,
+      start_date: startOverride.date,
+      end_date: endDate,
+      start_nav: startOverride.nav,
+      end_nav: endNav,
+      flows: periodFlows,
+      gain,
+      return_pct: denom !== 0 ? gain / denom : null,
+    };
+  }
+
   const target = toISO(shiftDate(new Date(endDate + "T00:00:00Z"), period));
 
   // Clamp target to the earliest snapshot if the period reaches before our
@@ -177,6 +206,13 @@ export function computePeriodReturn(
     gain,
     return_pct,
   };
+}
+
+// Compute the precise target date for a given period offset from a reference
+// date. Symmetric with shiftDate() but exposed so callers (page layer) can
+// pre-compute targets to send to reconstructed_nav_at.
+export function computePeriodStart(period: PeriodKey, end: Date): string {
+  return toISO(shiftDate(new Date(end), period));
 }
 
 export function computeAllPeriodReturns(
