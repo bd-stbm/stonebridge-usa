@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import {
   ACCOUNT_COOKIE,
   BENCHMARK_COOKIE,
+  SUB_CLIENT_COOKIE,
   TRUST_COOKIE,
 } from "./trust-filter";
 
@@ -32,6 +33,23 @@ export async function setTrustFilter(trusts: string[]): Promise<void> {
 
 export async function setAccountFilter(accounts: string[]): Promise<void> {
   setOrClearList(ACCOUNT_COOKIE, accounts);
+}
+
+export async function setSubClient(subClient: string): Promise<void> {
+  const c = cookies();
+  if (!subClient) {
+    c.delete(SUB_CLIENT_COOKIE);
+  } else {
+    c.set(SUB_CLIENT_COOKIE, subClient, {
+      path: "/",
+      sameSite: "lax",
+      maxAge: ONE_YEAR,
+    });
+  }
+  // Changing the sub-client invalidates any trust/account selection — both
+  // are scoped to a single sub-client and the names won't carry over.
+  c.delete(TRUST_COOKIE);
+  c.delete(ACCOUNT_COOKIE);
 }
 
 export async function setBenchmark(ticker: string): Promise<void> {

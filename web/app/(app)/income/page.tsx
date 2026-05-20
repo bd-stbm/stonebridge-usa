@@ -7,7 +7,6 @@ import IncomeByTrustTable, {
   type TrustIncomeRow,
 } from "@/components/IncomeByTrustTable";
 import {
-  DEFAULT_SUB_CLIENT,
   computeKpis,
   getIncomeRows,
   getLatestPositions,
@@ -15,6 +14,7 @@ import {
 } from "@/lib/queries";
 import {
   getSelectedAccounts,
+  getSelectedSubClient,
   getSelectedTrusts,
 } from "@/lib/trust-filter";
 import { money, pct } from "@/lib/format";
@@ -35,6 +35,7 @@ function sumAmount(rows: IncomeRow[]): number {
 }
 
 export default async function IncomePage() {
+  const subClient = getSelectedSubClient();
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
 
@@ -47,8 +48,8 @@ export default async function IncomePage() {
   );
 
   const [positions, incomeRows] = await Promise.all([
-    getLatestPositions(DEFAULT_SUB_CLIENT, trusts, accounts),
-    getIncomeRows(DEFAULT_SUB_CLIENT, trusts, accounts, fromDate),
+    getLatestPositions(subClient, trusts, accounts),
+    getIncomeRows(subClient, trusts, accounts, fromDate),
   ]);
   const kpis = computeKpis(positions);
 
@@ -197,7 +198,7 @@ export default async function IncomePage() {
         : null,
     ]
       .filter(Boolean)
-      .join(" · ") || "All trusts under " + DEFAULT_SUB_CLIENT;
+      .join(" · ") || "All trusts under " + subClient;
 
   return (
     <main className="mx-auto max-w-7xl space-y-8 px-6 py-8">

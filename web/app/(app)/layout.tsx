@@ -1,5 +1,4 @@
 import Header from "@/components/Header";
-import { DEFAULT_SUB_CLIENT } from "@/lib/queries";
 
 // Header lives in this shared layout so it persists across tab navigation
 // instead of being torn down and rebuilt on every page. Combined with the
@@ -9,7 +8,7 @@ import { DEFAULT_SUB_CLIENT } from "@/lib/queries";
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
-      <Header subClient={DEFAULT_SUB_CLIENT} />
+      <Header />
       {children}
     </>
   );

@@ -1,7 +1,6 @@
 import PerformanceMatrix from "@/components/PerformanceMatrix";
 import RebasedChart, { type RebasedPoint } from "@/components/RebasedChart";
 import {
-  DEFAULT_SUB_CLIENT,
   getFlowsByTrust,
   getIndexPrices,
   getLatestPositions,
@@ -15,6 +14,7 @@ import {
 import {
   getSelectedAccounts,
   getSelectedBenchmark,
+  getSelectedSubClient,
   getSelectedTrusts,
 } from "@/lib/trust-filter";
 import {
@@ -49,6 +49,7 @@ function sumPosition(positions: Position[], field: "mv_reporting" | "mv_reportin
 }
 
 export default async function PerformancePage() {
+  const subClient = getSelectedSubClient();
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
   const benchmarkTicker = getSelectedBenchmark();
@@ -61,14 +62,14 @@ export default async function PerformancePage() {
     indices,
     returns,
   ] = await Promise.all([
-    getLatestPositions(DEFAULT_SUB_CLIENT, trusts, accounts),
-    getNavSeries(DEFAULT_SUB_CLIENT, trusts, accounts),
-    getNavSeriesByTrust(DEFAULT_SUB_CLIENT, trusts, accounts),
-    getNavSeriesByAssetClass(DEFAULT_SUB_CLIENT, trusts, accounts),
+    getLatestPositions(subClient, trusts, accounts),
+    getNavSeries(subClient, trusts, accounts),
+    getNavSeriesByTrust(subClient, trusts, accounts),
+    getNavSeriesByAssetClass(subClient, trusts, accounts),
     listIndices(),
     // Total scope returns — reused as the "Total" row anchor + comparison
     // baseline. Page-level overrides applied below.
-    getPeriodReturns(DEFAULT_SUB_CLIENT, trusts, accounts, {}),
+    getPeriodReturns(subClient, trusts, accounts, {}),
   ]);
 
   const benchmarkFromDate =
@@ -82,7 +83,7 @@ export default async function PerformancePage() {
 
   // Flows per trust — for trust-level Modified Dietz.
   const flowsByTrust = await getFlowsByTrust(
-    DEFAULT_SUB_CLIENT,
+    subClient,
     trusts,
     accounts,
     benchmarkFromDate,
@@ -180,7 +181,7 @@ export default async function PerformancePage() {
       accounts.length > 0 ? `${accounts.length} account${accounts.length > 1 ? "s" : ""} scoped` : null,
     ]
       .filter(Boolean)
-      .join(" · ") || "All trusts under " + DEFAULT_SUB_CLIENT;
+      .join(" · ") || "All trusts under " + subClient;
 
   return (
     <main className="mx-auto max-w-7xl space-y-8 px-6 py-8">

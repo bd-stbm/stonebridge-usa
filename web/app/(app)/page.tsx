@@ -3,7 +3,6 @@ import ReturnsTile from "@/components/ReturnsTile";
 import HoldingsTable from "@/components/HoldingsTable";
 import NavChart from "@/components/NavChart";
 import {
-  DEFAULT_SUB_CLIENT,
   computeKpis,
   getIndexPrices,
   getLatestPositions,
@@ -16,6 +15,7 @@ import {
 import {
   getSelectedAccounts,
   getSelectedBenchmark,
+  getSelectedSubClient,
   getSelectedTrusts,
 } from "@/lib/trust-filter";
 import {
@@ -31,6 +31,7 @@ export const dynamic = "force-dynamic";
 
 export default async function OverviewPage() {
   const _renderStart = Date.now();
+  const subClient = getSelectedSubClient();
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
   const benchmarkTicker = getSelectedBenchmark();
@@ -44,12 +45,12 @@ export default async function OverviewPage() {
   // network round-trip instead of three sequential ones.
   const [positions, navSeries, indices, navByClass, nav6M, nav1Y] =
     await Promise.all([
-      getLatestPositions(DEFAULT_SUB_CLIENT, trusts, accounts),
-      getNavSeries(DEFAULT_SUB_CLIENT, trusts, accounts),
+      getLatestPositions(subClient, trusts, accounts),
+      getNavSeries(subClient, trusts, accounts),
       listIndices(),
-      getNavSeriesByAssetClass(DEFAULT_SUB_CLIENT, trusts, accounts),
-      getReconstructedNavAt(DEFAULT_SUB_CLIENT, trusts, accounts, target6M),
-      getReconstructedNavAt(DEFAULT_SUB_CLIENT, trusts, accounts, target1Y),
+      getNavSeriesByAssetClass(subClient, trusts, accounts),
+      getReconstructedNavAt(subClient, trusts, accounts, target6M),
+      getReconstructedNavAt(subClient, trusts, accounts, target1Y),
     ]);
   const kpis = computeKpis(positions);
 
@@ -78,7 +79,7 @@ export default async function OverviewPage() {
       .toISOString()
       .slice(0, 10);
   const [returns, indexPrices] = await Promise.all([
-    getPeriodReturns(DEFAULT_SUB_CLIENT, trusts, accounts, {
+    getPeriodReturns(subClient, trusts, accounts, {
       endNav,
       endNavYesterday,
       startNavByPeriod,

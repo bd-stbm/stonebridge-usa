@@ -1,10 +1,11 @@
 import KpiTile from "@/components/KpiTile";
 import TransactionsTable from "@/components/TransactionsTable";
+import { getTransactions } from "@/lib/queries";
 import {
-  DEFAULT_SUB_CLIENT,
-  getTransactions,
-} from "@/lib/queries";
-import { getSelectedAccounts, getSelectedTrusts } from "@/lib/trust-filter";
+  getSelectedAccounts,
+  getSelectedSubClient,
+  getSelectedTrusts,
+} from "@/lib/trust-filter";
 import { money } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +34,7 @@ export default async function TransactionsPage({
 }: {
   searchParams: { from?: string; to?: string };
 }) {
+  const subClient = getSelectedSubClient();
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
 
@@ -40,7 +42,7 @@ export default async function TransactionsPage({
   const to = isValidIso(searchParams.to) ? searchParams.to : defaultTo();
 
   const transactions = await getTransactions(
-    DEFAULT_SUB_CLIENT,
+    subClient,
     trusts,
     accounts,
     from,
@@ -72,7 +74,7 @@ export default async function TransactionsPage({
         : null,
     ]
       .filter(Boolean)
-      .join(" · ") || "All trusts under " + DEFAULT_SUB_CLIENT;
+      .join(" · ") || "All trusts under " + subClient;
 
   return (
     <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">

@@ -1,4 +1,5 @@
 import { getSupabaseServer } from "./supabase-server";
+import { DEFAULT_SUB_CLIENT } from "./trust-filter";
 import {
   computeAllPeriodReturns,
   type Flow,
@@ -7,6 +8,10 @@ import {
   type PeriodKey,
   type PeriodReturn,
 } from "./returns";
+
+// Re-export so existing `import { DEFAULT_SUB_CLIENT } from "@/lib/queries"`
+// sites keep working without churn. The canonical home is trust-filter.ts.
+export { DEFAULT_SUB_CLIENT };
 
 // Supabase enforces a project-wide `db-max-rows` cap (default 1000) that
 // silently truncates responses. For our single-tenant dashboard we always
@@ -39,7 +44,6 @@ async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
-export const DEFAULT_SUB_CLIENT = "Dyne Family (US)";
 
 export interface Position {
   account_alias: string;

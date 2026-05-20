@@ -1,19 +1,23 @@
 import HoldingsFullTable from "@/components/HoldingsFullTable";
 import KpiTile from "@/components/KpiTile";
 import {
-  DEFAULT_SUB_CLIENT,
   computeKpis,
   getLatestPositions,
 } from "@/lib/queries";
-import { getSelectedAccounts, getSelectedTrusts } from "@/lib/trust-filter";
+import {
+  getSelectedAccounts,
+  getSelectedSubClient,
+  getSelectedTrusts,
+} from "@/lib/trust-filter";
 import { money } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 export default async function HoldingsPage() {
+  const subClient = getSelectedSubClient();
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
-  const positions = await getLatestPositions(DEFAULT_SUB_CLIENT, trusts, accounts);
+  const positions = await getLatestPositions(subClient, trusts, accounts);
   const kpis = computeKpis(positions);
   const assetClasses = new Set(
     positions

@@ -2,13 +2,19 @@ import Image from "next/image";
 import Link from "next/link";
 import { getSupabaseServer } from "@/lib/supabase-server";
 import {
-  DEFAULT_SUB_CLIENT,
   listAccounts,
+  listSubClients,
   listTrusts,
 } from "@/lib/queries";
-import { getSelectedAccounts, getSelectedTrusts } from "@/lib/trust-filter";
+import {
+  getSelectedAccounts,
+  getSelectedSubClient,
+  getSelectedTrusts,
+} from "@/lib/trust-filter";
+import { isAdminEmail } from "@/lib/admin";
 import TrustFilter from "@/components/TrustFilter";
 import AccountFilter from "@/components/AccountFilter";
+import SubClientSelector from "@/components/SubClientSelector";
 import UserMenu from "@/components/UserMenu";
 
 const TABS = [
@@ -25,15 +31,23 @@ function summarise(label: string, items: string[]): string | null {
   return `${items.length} ${label}`;
 }
 
-export default async function Header({ subClient }: { subClient: string }) {
+export default async function Header() {
   const currentTrusts = getSelectedTrusts();
   const currentAccounts = getSelectedAccounts();
-  const scope = subClient ?? DEFAULT_SUB_CLIENT;
+  const scope = getSelectedSubClient();
 
-  const [{ data: { user } }, trusts, accounts] = await Promise.all([
-    getSupabaseServer().auth.getUser(),
+  // Auth first — we need the email to decide whether to fetch the sub-client
+  // list (admin-only). Trusts + accounts are scoped to the current sub-client
+  // and always needed.
+  const {
+    data: { user },
+  } = await getSupabaseServer().auth.getUser();
+  const showSubClientSelector = isAdminEmail(user?.email);
+
+  const [trusts, accounts, subClients] = await Promise.all([
     listTrusts(scope),
     listAccounts(scope, currentTrusts),
+    showSubClientSelector ? listSubClients() : Promise.resolve<string[]>([]),
   ]);
 
   const trustCrumb = summarise("trusts", currentTrusts);
@@ -86,6 +100,12 @@ export default async function Header({ subClient }: { subClient: string }) {
       </div>
       <div className="border-t border-slate-100 bg-slate-50">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-end gap-4 px-6 py-2">
+          {showSubClientSelector ? (
+            <SubClientSelector
+              subClients={subClients}
+              currentSubClient={scope}
+            />
+          ) : null}
           <TrustFilter trusts={trusts} currentTrusts={currentTrusts} />
           <AccountFilter accounts={accounts} currentAccounts={currentAccounts} />
         </div>

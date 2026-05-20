@@ -199,8 +199,11 @@ received dividends.
 - **Masttro JSON field is `assetName` not `name`**, `transactionType` not
   `type`. Don't assume nice camelCase.
 - **`sub_client_alias` in the DB is `"Dyne Family (US)"` with parens** —
-  comes straight from the Masttro GWM payload. The dashboard constant
-  `DEFAULT_SUB_CLIENT` in `lib/queries.ts` must match exactly.
+  comes straight from the Masttro GWM payload. The dashboard fallback
+  `DEFAULT_SUB_CLIENT` in `lib/trust-filter.ts` (re-exported from
+  `lib/queries.ts`) must match exactly. Pages now read the active
+  scope via `getSelectedSubClient()` (cookie-backed, admin-set);
+  the default is used only when no `sub_client` cookie is present.
 - **Substring "trust" matches "Deltrust LLC"** — `listTrusts()` queries
   `v_latest_positions` rather than `entity_attribution` so empty LLC
   shells with "trust" in their name don't appear in the dropdown.
