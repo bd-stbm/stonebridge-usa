@@ -12,6 +12,16 @@ FAMILIES = [
         "client_id": 7693,           # /Clients id (parent tenant)
         "reporting_ccy": "USD",
     },
-    # {"node_id": "102_93361", "label": "Markiles Family", "client_id": 7693, "reporting_ccy": "USD"},
-    # {"node_id": "102_93360", "label": "Miller Family",   "client_id": 7693, "reporting_ccy": "USD"},
+    {
+        "node_id": "102_93361",
+        "label": "Markiles Family",
+        "client_id": 7693,
+        "reporting_ccy": "USD",
+    },
+    {
+        "node_id": "102_93360",
+        "label": "Miller Family",
+        "client_id": 7693,
+        "reporting_ccy": "USD",
+    },
 ]
