@@ -214,6 +214,7 @@ export default async function OverviewPage() {
             availableBenchmarks={indices}
             returnsByAssetClass={returnsByAssetClass}
             indexReturnsByAssetClass={indexReturnsByAssetClass}
+            reportingCcy={kpis.reporting_ccy}
           />
         </div>
         <KpiTile

@@ -6,7 +6,7 @@ import clsx from "clsx";
 import { PERIODS, type PeriodKey, type PeriodReturn } from "@/lib/returns";
 import type { IndexOption } from "@/lib/queries";
 import { setBenchmark } from "@/lib/actions";
-import { pct } from "@/lib/format";
+import { money, pct } from "@/lib/format";
 
 const TOTAL = "__total__";
 
@@ -19,6 +19,7 @@ interface Props {
   returnsByAssetClass?: Record<string, Record<PeriodKey, PeriodReturn>>;
   indexReturnsByAssetClass?: Record<string, Record<PeriodKey, number | null>>;
   defaultPeriod?: PeriodKey;
+  reportingCcy?: string;
 }
 
 function formatDate(iso: string | null): string {
@@ -40,6 +41,7 @@ export default function ReturnsTile({
   returnsByAssetClass = {},
   indexReturnsByAssetClass = {},
   defaultPeriod = "ytd",
+  reportingCcy = "USD",
 }: Props) {
   const [selected, setSelected] = useState<PeriodKey>(defaultPeriod);
   const [assetClass, setAssetClass] = useState<string>(TOTAL);
@@ -146,6 +148,19 @@ export default function ReturnsTile({
         )}
       >
         {r.return_pct != null ? pct(r.return_pct, 2) : "—"}
+        {r.gain != null ? (
+          <span
+            className={clsx(
+              "ml-2 text-sm font-medium",
+              tone === "positive" && "text-emerald-600/80",
+              tone === "negative" && "text-rose-600/80",
+              tone === "default" && "text-slate-500",
+            )}
+          >
+            {r.gain >= 0 ? "+" : ""}
+            {money(r.gain, reportingCcy)}
+          </span>
+        ) : null}
       </div>
       <div className="mt-1 text-xs text-slate-400">
         {r.start_date && r.end_date
