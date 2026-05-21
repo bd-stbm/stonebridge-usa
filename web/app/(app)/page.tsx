@@ -158,19 +158,38 @@ export default async function OverviewPage() {
     );
   }
 
+  // Collapse the series to one point per calendar month — pick the latest
+  // snapshot in each month. For completed months that's the month-end
+  // snapshot; for the current month it's whatever daily snapshot is most
+  // recent. Keeps the line readable instead of stacking intra-month dailies
+  // on top of the prior month-end.
+  const monthlyNavSeries = (() => {
+    const byMonth = new Map<string, (typeof navSeries)[number]>();
+    for (const point of navSeries) {
+      const monthKey = point.snapshot_date.slice(0, 7);
+      const existing = byMonth.get(monthKey);
+      if (!existing || point.snapshot_date > existing.snapshot_date) {
+        byMonth.set(monthKey, point);
+      }
+    }
+    return Array.from(byMonth.values()).sort((a, b) =>
+      a.snapshot_date.localeCompare(b.snapshot_date),
+    );
+  })();
+
   // Bump the chart's rightmost point to the refreshed NAV so the line lands
   // on the same number as the NAV tile (which is yfinance-priced). If the
   // latest Masttro snapshot is before today, append a new point for today;
   // if it's today already, overwrite that point's value.
   const todayIso = today.toISOString().slice(0, 10);
   const chartData = (() => {
-    if (navSeries.length === 0) return navSeries;
-    const last = navSeries[navSeries.length - 1];
+    if (monthlyNavSeries.length === 0) return monthlyNavSeries;
+    const last = monthlyNavSeries[monthlyNavSeries.length - 1];
     if (last.snapshot_date < todayIso) {
-      return [...navSeries, { snapshot_date: todayIso, nav: endNav }];
+      return [...monthlyNavSeries, { snapshot_date: todayIso, nav: endNav }];
     }
     return [
-      ...navSeries.slice(0, -1),
+      ...monthlyNavSeries.slice(0, -1),
       { snapshot_date: last.snapshot_date, nav: endNav },
     ];
   })();
