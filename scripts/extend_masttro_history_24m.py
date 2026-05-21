@@ -58,6 +58,7 @@ def main() -> int:
 
     client = MasttroClient()
     conn = connect()
+    family_roots = [f["node_id"] for f in FAMILIES]
 
     try:
         for fam in FAMILIES:
@@ -67,7 +68,7 @@ def main() -> int:
             ccy = fam["reporting_ccy"]
             print(f"\n--- {label} ({node}) ---")
 
-            accounts = canonical_accounts_under(conn, node)
+            accounts = canonical_accounts_under(conn, node, family_roots)
             print(f"  {len(accounts)} canonical accounts in scope")
             if not accounts:
                 print("  WARN: no accounts. Run the weekly GWM sync first.")

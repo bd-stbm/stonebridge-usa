@@ -29,11 +29,16 @@ def upsert_gwm(conn, gwm_payload: list[dict]) -> int:
     for n in gwm_payload:
         bb = (n.get("bankBroker") or "").strip() or None
         an = (n.get("accountNumber") or "").strip() or None
+        gnid = n.get("groupNodeId")
+        # Masttro emits groupNodeId as an int; store as TEXT for consistency
+        # with node_id and to keep joins/comparisons unambiguous.
+        gnid_text = str(gnid) if gnid is not None else None
         rows.append((
             n["nodeId"], n.get("parentNodeId"), n.get("alias"), n.get("name"),
             bb, an, n.get("ownershipPct"),
             bool(bb and an), False,
             n.get("valuation"), "AUD", snapshot_iso, n.get("status"),
+            gnid_text,
         ))
 
     with conn.cursor() as cur:
@@ -41,8 +46,9 @@ def upsert_gwm(conn, gwm_payload: list[dict]) -> int:
             """INSERT INTO entity
                  (node_id, parent_node_id, alias, name, bank_broker, account_number,
                   ownership_pct, is_account, is_canonical_account,
-                  gwm_valuation, gwm_valuation_ccy, snapshot_date, status)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                  gwm_valuation, gwm_valuation_ccy, snapshot_date, status,
+                  group_node_id)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                ON CONFLICT (node_id) DO UPDATE SET
                  parent_node_id    = EXCLUDED.parent_node_id,
                  alias             = EXCLUDED.alias,
@@ -54,7 +60,8 @@ def upsert_gwm(conn, gwm_payload: list[dict]) -> int:
                  gwm_valuation     = EXCLUDED.gwm_valuation,
                  gwm_valuation_ccy = EXCLUDED.gwm_valuation_ccy,
                  snapshot_date     = EXCLUDED.snapshot_date,
-                 status            = EXCLUDED.status
+                 status            = EXCLUDED.status,
+                 group_node_id     = EXCLUDED.group_node_id
             """,
             rows,
         )
@@ -131,27 +138,114 @@ def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
     return len(rows)
 
 
-def canonical_accounts_under(conn, scope_node_id: str) -> list[str]:
-    """Canonical investment-account node_ids directly under any 'trust' node
-    within the scope subtree. Postgres-native via WITH RECURSIVE."""
+def canonical_accounts_under(
+    conn,
+    scope_node_id: str,
+    all_family_roots: list[str] | None = None,
+) -> list[str]:
+    """Canonical investment-account node_ids inside scope_node_id, with
+    cross-family shared vehicles excluded.
+
+    A vehicle (LP/LLC/trust) is "shared across families" when its
+    group_node_id appears under more than one family root. Any canonical
+    account whose ancestor chain crosses such a vehicle is dropped to
+    avoid double-counting that vehicle's positions across families.
+
+    Family-internal sharing (e.g. Modyl LP held only inside Dyne (US))
+    keeps its group_node_id but only appears under one family root, so
+    those accounts are kept.
+
+    Passing all_family_roots=None disables the cross-family check (a
+    legacy single-tenant fallback). Production callers always pass the
+    full list from tracker/families.py.
+    """
+    if all_family_roots:
+        # Guard: if group_node_id hasn't been populated yet (migration
+        # 016 applied but weekly GWM sync not run), the cross-family
+        # exclusion is silently inert — we'd return shared vehicles too.
+        # Fail loudly instead so the operator runs the weekly sync first.
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM entity WHERE group_node_id IS NOT NULL"
+            )
+            if cur.fetchone()["n"] == 0:
+                raise RuntimeError(
+                    "entity.group_node_id is empty. Apply migration 016 and "
+                    "run scripts/sync_masttro_weekly.py to populate it before "
+                    "running this. Otherwise cross-family shared vehicles "
+                    "(Deltrust, Prairie Land, etc.) would slip through."
+                )
+
+    if not all_family_roots:
+        # Single-tenant mode: just every canonical account in the subtree.
+        with conn.cursor() as cur:
+            cur.execute(
+                """WITH RECURSIVE descendants AS (
+                       SELECT node_id FROM entity WHERE node_id = %s
+                     UNION
+                       SELECT e.node_id
+                       FROM entity e JOIN descendants d
+                         ON e.parent_node_id = d.node_id
+                   )
+                   SELECT e.node_id FROM entity e
+                   JOIN descendants d ON e.node_id = d.node_id
+                   WHERE e.is_canonical_account = TRUE
+                """,
+                (scope_node_id,),
+            )
+            return [r["node_id"] for r in cur.fetchall()]
+
     with conn.cursor() as cur:
         cur.execute(
-            """WITH RECURSIVE descendants AS (
-                   SELECT node_id, alias, name FROM entity WHERE node_id = %s
-                 UNION
-                   SELECT e.node_id, e.alias, e.name
-                   FROM entity e JOIN descendants d ON e.parent_node_id = d.node_id
-               ),
-               trust_nodes AS (
-                   SELECT node_id FROM descendants
-                   WHERE lower(coalesce(alias,'')) LIKE %s
-                      OR lower(coalesce(name,''))  LIKE %s
-               )
-               SELECT e.node_id FROM entity e
-               WHERE e.is_canonical_account = TRUE
-                 AND e.parent_node_id IN (SELECT node_id FROM trust_nodes)
+            """
+            WITH RECURSIVE
+            -- All descendants of every family root, tagged with which root
+            fam_desc(family_root, node_id) AS (
+                SELECT e.node_id, e.node_id
+                  FROM entity e
+                 WHERE e.node_id = ANY(%s::text[])
+                UNION
+                SELECT fd.family_root, e.node_id
+                  FROM entity e
+                  JOIN fam_desc fd ON e.parent_node_id = fd.node_id
+            ),
+            -- group_node_id values that surface under >1 family
+            multi_family_groups AS (
+                SELECT e.group_node_id
+                  FROM entity e
+                  JOIN fam_desc fd ON e.node_id = fd.node_id
+                 WHERE e.group_node_id IS NOT NULL
+                 GROUP BY e.group_node_id
+                HAVING COUNT(DISTINCT fd.family_root) > 1
+            ),
+            -- Nodes whose group_node_id is shared across families
+            shared_vehicles AS (
+                SELECT node_id FROM entity
+                 WHERE group_node_id IN (SELECT group_node_id FROM multi_family_groups)
+            ),
+            -- shared_vehicles plus everything beneath them
+            shared_subtree AS (
+                SELECT node_id FROM shared_vehicles
+                UNION
+                SELECT e.node_id
+                  FROM entity e
+                  JOIN shared_subtree ss ON e.parent_node_id = ss.node_id
+            ),
+            -- Descendants of the target family root
+            target_desc AS (
+                SELECT node_id FROM entity WHERE node_id = %s
+                UNION
+                SELECT e.node_id
+                  FROM entity e
+                  JOIN target_desc td ON e.parent_node_id = td.node_id
+            )
+            SELECT e.node_id
+              FROM entity e
+              JOIN target_desc td ON e.node_id = td.node_id
+             WHERE e.is_canonical_account = TRUE
+               AND e.node_id NOT IN (SELECT node_id FROM shared_subtree)
             """,
-            (scope_node_id, "%trust%", "%trust%"),
+            (list(all_family_roots), scope_node_id),
         )
         return [r["node_id"] for r in cur.fetchall()]
 

@@ -44,6 +44,9 @@ CREATE TABLE IF NOT EXISTS public.entity (
     gwm_valuation_ccy    CHAR(3),
     snapshot_date        DATE,            -- when GWM was pulled
     status               TEXT,
+    group_node_id        TEXT,            -- Masttro groupNodeId; cross-structure
+                                          -- shared vehicles share one groupNodeId
+                                          -- across their reflections
     created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -54,6 +57,8 @@ CREATE INDEX IF NOT EXISTS entity_canonical_idx
     ON public.entity (is_canonical_account) WHERE is_canonical_account = TRUE;
 CREATE INDEX IF NOT EXISTS entity_bank_acct_idx
     ON public.entity (bank_broker, account_number) WHERE is_account = TRUE;
+CREATE INDEX IF NOT EXISTS entity_group_node_idx
+    ON public.entity (group_node_id) WHERE group_node_id IS NOT NULL;
 
 DROP TRIGGER IF EXISTS entity_set_updated_at ON public.entity;
 CREATE TRIGGER entity_set_updated_at BEFORE UPDATE ON public.entity
