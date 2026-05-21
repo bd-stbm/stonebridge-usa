@@ -8,8 +8,8 @@ import {
   getLatestPositions,
   getNavSeries,
   getNavSeriesByAssetClass,
+  getNavAtOrBefore,
   getPeriodReturns,
-  getReconstructedNavAt,
   listIndices,
 } from "@/lib/queries";
 import {
@@ -35,9 +35,12 @@ export default async function OverviewPage() {
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
   const benchmarkTicker = getSelectedBenchmark();
-  // Precise 6M and 1Y start NAVs via the reconstructed_nav_at RPC. Other
-  // periods (1D / MTD / YTD) already align to dates we have exactly, so
-  // we leave them on the snapshot-grid path.
+  // 6M / 1Y start NAVs via the nav_at_or_before RPC. Masttro only exposes
+  // month-end historicals, so the RPC returns the raw NAV at the most
+  // recent snapshot ≤ target date — and also returns that anchor_date so
+  // we can label the period start honestly (e.g. "Apr 30 2025" for 1Y if
+  // today is May 21 2026). Other periods (1D / MTD / YTD) already align
+  // to dates we have exactly, so they use the snapshot-grid path.
   const today = new Date();
   const target6M = computePeriodStart("6m", today);
   const target1Y = computePeriodStart("1y", today);
@@ -49,8 +52,8 @@ export default async function OverviewPage() {
       getNavSeries(subClient, trusts, accounts),
       listIndices(),
       getNavSeriesByAssetClass(subClient, trusts, accounts),
-      getReconstructedNavAt(subClient, trusts, accounts, target6M),
-      getReconstructedNavAt(subClient, trusts, accounts, target1Y),
+      getNavAtOrBefore(subClient, trusts, accounts, target6M),
+      getNavAtOrBefore(subClient, trusts, accounts, target1Y),
     ]);
   const kpis = computeKpis(positions);
 
@@ -67,8 +70,11 @@ export default async function OverviewPage() {
     0,
   );
   const startNavByPeriod: Partial<Record<PeriodKey, { nav: number; date: string }>> = {};
-  if (nav6M != null) startNavByPeriod["6m"] = { nav: nav6M, date: target6M };
-  if (nav1Y != null) startNavByPeriod["1y"] = { nav: nav1Y, date: target1Y };
+  // Use the actual anchor_date returned by the RPC so the Returns tile's
+  // displayed start date matches the snapshot the NAV came from, not the
+  // synthetic target date.
+  if (nav6M != null) startNavByPeriod["6m"] = { nav: nav6M.nav, date: nav6M.anchorDate };
+  if (nav1Y != null) startNavByPeriod["1y"] = { nav: nav1Y.nav, date: nav1Y.anchorDate };
 
   // Pull benchmark price history starting from the earliest portfolio snapshot
   // (or 5y back if there's no portfolio data yet). Run in parallel with
@@ -102,16 +108,14 @@ export default async function OverviewPage() {
     arr.push(p);
     positionsByClass.set(ac, arr);
   }
-  // Fetch precise 6M / 1Y start NAVs per asset class via the asset-class-
-  // aware reconstructed_nav_at RPC (migration 014). Without this, asset-
-  // class returns used the snapshot-grid path and their start_date snapped
-  // to the previous month-end — which made the benchmark column for that
-  // slice differ from Total, since computeIndexReturn slices the index
-  // series by the portfolio's own dates. All 2*N calls fire in parallel.
+  // Fetch 6M / 1Y start NAVs per asset class via the asset-class-aware
+  // nav_at_or_before RPC. Each returns the raw month-end NAV plus its
+  // anchor_date, so the displayed start date matches the actual snapshot.
+  // All 2*N calls fire in parallel.
   const acNames = Array.from(new Set(Object.keys(navByClass)));
   const acStartNavPromises = acNames.flatMap(ac => [
-    getReconstructedNavAt(subClient, trusts, accounts, target6M, ac),
-    getReconstructedNavAt(subClient, trusts, accounts, target1Y, ac),
+    getNavAtOrBefore(subClient, trusts, accounts, target6M, ac),
+    getNavAtOrBefore(subClient, trusts, accounts, target1Y, ac),
   ]);
   const acStartNavResults = await Promise.all(acStartNavPromises);
   const acStartNavByPeriod: Record<
@@ -122,8 +126,8 @@ export default async function OverviewPage() {
     const nav6 = acStartNavResults[i * 2];
     const nav1 = acStartNavResults[i * 2 + 1];
     const overrides: Partial<Record<PeriodKey, { nav: number; date: string }>> = {};
-    if (nav6 != null) overrides["6m"] = { nav: nav6, date: target6M };
-    if (nav1 != null) overrides["1y"] = { nav: nav1, date: target1Y };
+    if (nav6 != null) overrides["6m"] = { nav: nav6.nav, date: nav6.anchorDate };
+    if (nav1 != null) overrides["1y"] = { nav: nav1.nav, date: nav1.anchorDate };
     acStartNavByPeriod[ac] = overrides;
   });
   const returnsByAssetClass: Record<string, Record<PeriodKey, PeriodReturn>> = {};

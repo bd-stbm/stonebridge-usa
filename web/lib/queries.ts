@@ -621,24 +621,32 @@ export async function listIndices(): Promise<IndexOption[]> {
   });
 }
 
+export interface NavAnchor {
+  nav: number;
+  anchorDate: string; // ISO YYYY-MM-DD of the actual snapshot used
+}
+
 /**
- * Precise historical NAV at p_target_date, via the reconstructed_nav_at
- * RPC. Returns null when no snapshot exists on or before the target — the
- * caller should fall back to the snapshot-grid approximation in that case.
+ * Raw NAV at the latest position_snapshot on or before targetDate, via
+ * the nav_at_or_before RPC. Returns the actual anchor date alongside the
+ * value so the caller can label the start of the period honestly (Masttro
+ * has no daily historicals, so the anchor is typically the previous
+ * month-end). Returns null when no snapshot exists on or before the
+ * target.
  */
-export async function getReconstructedNavAt(
+export async function getNavAtOrBefore(
   subClient: string,
   trusts: string[],
   accounts: string[],
   targetDate: string,
-  // Optional asset_class filter — see migration 014. Page convention:
-  // "Unclassified" maps to NULL asset_class in the DB, so we pass an
-  // empty string for that bucket (the RPC special-cases "" → IS NULL).
+  // Optional asset_class filter. Page convention: "Unclassified" maps to
+  // NULL asset_class in the DB, so we pass an empty string for that
+  // bucket (the RPC special-cases "" → IS NULL).
   assetClass?: string,
-): Promise<number | null> {
+): Promise<NavAnchor | null> {
   const label = assetClass !== undefined
-    ? `reconstructed_nav_at(${targetDate},${assetClass || "<null>"})`
-    : `reconstructed_nav_at(${targetDate})`;
+    ? `nav_at_or_before(${targetDate},${assetClass || "<null>"})`
+    : `nav_at_or_before(${targetDate})`;
   return timed(label, async () => {
     const excluded = excludedEntities(subClient);
     const params: Record<string, unknown> = {
@@ -652,17 +660,10 @@ export async function getReconstructedNavAt(
       params.p_asset_class = assetClass === "Unclassified" ? "" : assetClass;
     }
     const { data, error } = await getSupabaseServer().rpc(
-      "reconstructed_nav_at",
+      "nav_at_or_before",
       params,
     );
     if (error) {
-      // Shape problems with the RPC are recoverable — the caller treats
-      // a null start NAV as "fall back to the snapshot grid" rather than
-      // crashing the page. Catch:
-      //   PGRST202 — function not found (migration not applied yet)
-      //   PGRST203 — overload ambiguity (a stale signature wasn't dropped,
-      //              e.g. between migrations 014 and 015)
-      // Re-throw anything else so real bugs still surface.
       const code = (error as { code?: string }).code;
       if (code === "PGRST202" || code === "PGRST203") {
         console.log(`[q] ${label} fallback: ${code} ${error.message}`);
@@ -670,9 +671,14 @@ export async function getReconstructedNavAt(
       }
       throw error;
     }
-    if (data == null) return null;
-    const n = Number(data);
-    return Number.isFinite(n) ? n : null;
+    // RETURNS TABLE shapes come back as a row array. No rows → no snapshot
+    // exists on or before the target.
+    const rows = (data ?? []) as Array<{ nav: unknown; anchor_date: string }>;
+    if (rows.length === 0) return null;
+    const row = rows[0];
+    const n = Number(row.nav);
+    if (!Number.isFinite(n)) return null;
+    return { nav: n, anchorDate: row.anchor_date };
   });
 }
 
