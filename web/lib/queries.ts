@@ -21,6 +21,31 @@ export { DEFAULT_SUB_CLIENT };
 // at the server's cap.
 const LIMIT_LARGE = 100000;
 
+// Entities (trusts / shared vehicles) to hide from the dashboard per sub
+// client. Excluded entries don't appear in the Entity filter dropdown, get
+// stripped out of every scoped query's WHERE clause, and are passed as
+// p_excluded_trusts to reconstructed_nav_at so 6M / 1Y returns also drop
+// them. Driven by client preference; edit here to add or remove.
+const EXCLUDED_ENTITIES_BY_SUB_CLIENT: Record<string, string[]> = {
+  "Dyne Family (US)": [
+    "Sibling Trust IFO Colin Dyne",
+    "Sibling Trust IFO Larry Dyne",
+    "Silbling Trust IFO Rozanne Bur",
+    "The Family Trust",
+  ],
+};
+
+function excludedEntities(subClient: string): string[] {
+  return EXCLUDED_ENTITIES_BY_SUB_CLIENT[subClient] ?? [];
+}
+
+// PostgREST `in` value list with safe quoting for values containing
+// spaces, commas, or other reserved chars. We just refuse to handle
+// embedded double quotes — none of the current entity names have them.
+function postgrestInList(values: string[]): string {
+  return `(${values.map(v => `"${v}"`).join(",")})`;
+}
+
 // Per-query timing wrapper. Logs `[q] <label> <ms>ms (<rows> rows)` to
 // stdout — picked up by Vercel function logs. Wraps every exported query
 // in this file so we can compare wall-clock costs after a filter change.
@@ -128,6 +153,8 @@ export async function listAccounts(
       .select("account_node_id, account_alias, custodian, trust_alias")
       .eq("sub_client_alias", subClient);
     if (trusts.length) q = q.in("trust_alias", trusts);
+    const excluded = excludedEntities(subClient);
+    if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
     const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
     const rows = (data ?? []) as unknown as Array<{
@@ -162,12 +189,14 @@ export async function listTrusts(
     // the substring "trust", which catches LLCs like "Deltrust LLC" and
     // other non-position-holding shells. Real fix is at sync-level, but
     // this filter keeps the dropdown clean either way.
-    const { data, error } = await getSupabaseServer()
+    const excluded = excludedEntities(subClient);
+    let q = getSupabaseServer()
       .from("v_latest_positions")
       .select("trust_alias")
       .eq("sub_client_alias", subClient)
-      .not("trust_alias", "is", null)
-      .limit(LIMIT_LARGE);
+      .not("trust_alias", "is", null);
+    if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
+    const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
     const rows = (data ?? []) as unknown as Array<{ trust_alias: string }>;
     return Array.from(new Set(rows.map(r => r.trust_alias))).sort();
@@ -200,6 +229,8 @@ export async function getLatestPositions(
       .eq("sub_client_alias", subClient);
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
+    const excluded = excludedEntities(subClient);
+    if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
     const { data, error } = await q
       .order("mv_reporting_refreshed", { ascending: false, nullsFirst: false })
       .limit(LIMIT_LARGE);
@@ -220,6 +251,8 @@ export async function getNavSeries(
       .eq("sub_client_alias", subClient);
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
+    const excluded = excludedEntities(subClient);
+    if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
     const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
 
@@ -286,6 +319,8 @@ export async function getPeriodReturns(
       .gte("transaction_date", earliest);
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
+    const excluded = excludedEntities(subClient);
+    if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
     const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
 
@@ -324,6 +359,8 @@ export async function getNavSeriesByTrust(
       .not("trust_alias", "is", null);
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
+    const excluded = excludedEntities(subClient);
+    if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
     const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
 
@@ -371,6 +408,8 @@ export async function getFlowsByTrust(
       .not("trust_alias", "is", null);
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
+    const excluded = excludedEntities(subClient);
+    if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
     const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
 
@@ -407,6 +446,8 @@ export async function getNavSeriesByAssetClass(
       .eq("sub_client_alias", subClient);
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
+    const excluded = excludedEntities(subClient);
+    if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
     const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
 
@@ -476,6 +517,8 @@ export async function getIncomeRows(
       .order("month", { ascending: true });
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
+    const excluded = excludedEntities(subClient);
+    if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
     const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
     const rows = (data ?? []) as unknown as Array<
@@ -534,6 +577,8 @@ export async function getTransactions(
     if (toDate) q = q.lte("transaction_date", toDate);
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
+    const excluded = excludedEntities(subClient);
+    if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
     const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
     return (data ?? []) as unknown as Transaction[];
@@ -579,11 +624,13 @@ export async function getReconstructedNavAt(
     ? `reconstructed_nav_at(${targetDate},${assetClass || "<null>"})`
     : `reconstructed_nav_at(${targetDate})`;
   return timed(label, async () => {
+    const excluded = excludedEntities(subClient);
     const params: Record<string, unknown> = {
       p_sub_client: subClient,
       p_trusts: trusts.length ? trusts : null,
       p_accounts: accounts.length ? accounts : null,
       p_target_date: targetDate,
+      p_excluded_trusts: excluded.length ? excluded : null,
     };
     if (assetClass !== undefined) {
       params.p_asset_class = assetClass === "Unclassified" ? "" : assetClass;
