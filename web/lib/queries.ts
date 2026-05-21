@@ -195,7 +195,15 @@ export async function listTrusts(
       .select("trust_alias")
       .eq("sub_client_alias", subClient)
       .not("trust_alias", "is", null);
-    if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
+    // Cast the builder to `any` before the second `.not()` — supabase-js's
+    // PostgrestFilterBuilder tracks each filter at the type level, and two
+    // `.not()` calls on one builder otherwise blow TS's "Type instantiation
+    // is excessively deep" limit. The cast back to `typeof q` keeps the
+    // post-assignment value typed normally.
+    if (excluded.length)
+      q = (q as unknown as {
+        not: (col: string, op: string, val: string) => typeof q;
+      }).not("trust_alias", "in", postgrestInList(excluded));
     const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
     const rows = (data ?? []) as unknown as Array<{ trust_alias: string }>;
@@ -360,7 +368,11 @@ export async function getNavSeriesByTrust(
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
     const excluded = excludedEntities(subClient);
-    if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
+    // Two .not()s on one builder otherwise hit TS's deep-instantiation limit.
+    if (excluded.length)
+      q = (q as unknown as {
+        not: (col: string, op: string, val: string) => typeof q;
+      }).not("trust_alias", "in", postgrestInList(excluded));
     const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
 
@@ -409,7 +421,11 @@ export async function getFlowsByTrust(
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
     const excluded = excludedEntities(subClient);
-    if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
+    // Two .not()s on one builder otherwise hit TS's deep-instantiation limit.
+    if (excluded.length)
+      q = (q as unknown as {
+        not: (col: string, op: string, val: string) => typeof q;
+      }).not("trust_alias", "in", postgrestInList(excluded));
     const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
 
