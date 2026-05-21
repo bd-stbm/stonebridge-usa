@@ -63,6 +63,30 @@ function compareValues(a: unknown, b: unknown, dir: SortDir): number {
   return String(a).localeCompare(String(b)) * sign;
 }
 
+function csvCell(v: unknown): string {
+  if (v == null) return "";
+  const s = typeof v === "number" ? String(v) : String(v);
+  // Quote if the field contains comma, quote, or newline; double any
+  // embedded quotes per RFC 4180.
+  if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function downloadCsv(filename: string, rows: (string | number | null)[][]) {
+  const body = rows.map(r => r.map(csvCell).join(",")).join("\r\n");
+  // BOM so Excel auto-detects UTF-8 (asset names sometimes carry
+  // non-ASCII characters from Masttro).
+  const blob = new Blob(["﻿" + body], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 interface Props {
   positions: Position[];
   reportingCcy: string;
@@ -154,6 +178,51 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
 
   const hasActiveFilter = search || assetClass || custodian;
 
+  const handleExportCsv = () => {
+    const header = [
+      "Asset",
+      "Ticker",
+      "ISIN",
+      "Asset class",
+      "Security type",
+      "Trust",
+      "Custodian",
+      "Account",
+      "Quantity",
+      "Price",
+      "Local CCY",
+      "Value",
+      "Reporting CCY",
+      "Weight",
+      "Unrealized G/L",
+    ];
+    const rows: (string | number | null)[][] = [header];
+    for (const p of sorted) {
+      const priceRaw = p.yf_price ?? p.price_local;
+      const mvr = num(p.mv_reporting);
+      const weight = totalNav > 0 ? mvr / totalNav : 0;
+      rows.push([
+        p.asset_name ?? "",
+        p.ticker_masttro ?? "",
+        p.isin ?? "",
+        p.asset_class ?? "",
+        p.security_type ?? "",
+        p.trust_alias ?? "",
+        p.custodian ?? "",
+        p.account_alias ?? "",
+        num(p.quantity),
+        priceRaw != null ? num(priceRaw) : "",
+        p.local_ccy ?? "",
+        mvr,
+        p.reporting_ccy ?? reportingCcy,
+        weight,
+        num(p.unrealized_gl_local),
+      ]);
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    downloadCsv(`holdings_${today}.csv`, rows);
+  };
+
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -207,15 +276,25 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
               <> ({pct(filteredNav / totalNav, 1)} of total)</>
             ) : null}
           </div>
-          {hasActiveFilter ? (
+          <div className="flex items-center gap-3">
+            {hasActiveFilter ? (
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="text-slate-600 underline hover:text-slate-900"
+              >
+                Clear filters
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={resetFilters}
-              className="text-slate-600 underline hover:text-slate-900"
+              onClick={handleExportCsv}
+              disabled={sorted.length === 0}
+              className="rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Clear filters
+              Export CSV
             </button>
-          ) : null}
+          </div>
         </div>
       </div>
 
