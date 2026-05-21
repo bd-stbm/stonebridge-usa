@@ -93,8 +93,12 @@ export interface Kpis {
 
 export async function listSubClients(): Promise<string[]> {
   return timed("listSubClients", async () => {
+    // Query v_latest_positions rather than entity_attribution so only
+    // families that actually hold positions in the latest snapshot show
+    // up. Newly-onboarded families that haven't been backfilled yet would
+    // otherwise appear in the selector with empty dashboards.
     const { data, error } = await getSupabaseServer()
-      .from("entity_attribution")
+      .from("v_latest_positions")
       .select("sub_client_alias")
       .not("sub_client_alias", "is", null)
       .limit(LIMIT_LARGE);
