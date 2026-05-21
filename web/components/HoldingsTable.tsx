@@ -10,11 +10,14 @@ interface AggregatedHolding {
   key: string;
   asset_name: string;
   ticker_masttro: string | null;
+  asset_class: string | null;
   quantity: number;
   price_display: number | null;
   mv_reporting: number;
   unrealized_gl_local: number;
 }
+
+const CASH_ASSET_CLASS = "Cash and Equivalents";
 
 function aggregateByHolding(positions: Position[]): AggregatedHolding[] {
   // Roll up the same security across accounts/trusts so "Top holdings"
@@ -36,6 +39,7 @@ function aggregateByHolding(positions: Position[]): AggregatedHolding[] {
         key,
         asset_name: p.asset_name,
         ticker_masttro: p.ticker_masttro,
+        asset_class: p.asset_class,
         quantity: Number(p.quantity ?? 0),
         price_display: px ?? null,
         mv_reporting: Number(p.mv_reporting ?? 0),
@@ -69,15 +73,20 @@ export default function HoldingsTable({ positions, limit = 10 }: Props) {
           {top.map(h => {
             const weight = totalNav > 0 ? h.mv_reporting / totalNav : 0;
             const gl = h.unrealized_gl_local;
+            const isCash = h.asset_class === CASH_ASSET_CLASS;
             return (
               <tr key={h.key} className="hover:bg-slate-50">
                 <td className="px-4 py-3 font-medium text-slate-900">{h.asset_name}</td>
                 <td className="px-4 py-3 text-slate-600">{h.ticker_masttro ?? "—"}</td>
                 <td className="px-4 py-3 text-right text-slate-700">
-                  {h.quantity.toLocaleString()}
+                  {isCash ? "—" : h.quantity.toLocaleString()}
                 </td>
                 <td className="px-4 py-3 text-right text-slate-700">
-                  {h.price_display != null ? price(h.price_display, "USD") : "—"}
+                  {isCash
+                    ? "—"
+                    : h.price_display != null
+                      ? price(h.price_display, "USD")
+                      : "—"}
                 </td>
                 <td className="px-4 py-3 text-right font-medium text-slate-900">
                   {money(h.mv_reporting, "USD")}
