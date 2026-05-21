@@ -4,7 +4,7 @@ import { pct } from "@/lib/format";
 
 interface Props {
   title: string;
-  rowLabel: string; // e.g. "Trust" or "Asset class"
+  rowLabel: string; // e.g. "Entity" or "Asset class"
   returns: Record<string, Record<PeriodKey, PeriodReturn>>;
   navAtToday: Record<string, number>; // ordering hint — sort by NAV desc
   // Same-shape map keyed identically to `returns`, used for the bottom

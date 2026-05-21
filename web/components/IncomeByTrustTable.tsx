@@ -19,7 +19,7 @@ export default function IncomeByTrustTable({ rows, reportingCcy }: Props) {
       <table className="min-w-full text-sm">
         <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
           <tr>
-            <th className="px-4 py-3 text-left">Trust</th>
+            <th className="px-4 py-3 text-left">Entity</th>
             <th className="px-4 py-3 text-right">TTM income</th>
             <th className="px-4 py-3 text-right">YTD income</th>
             <th className="px-4 py-3 text-right">Last month</th>

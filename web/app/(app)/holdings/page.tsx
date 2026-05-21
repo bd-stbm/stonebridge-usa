@@ -30,7 +30,7 @@ export default async function HoldingsPage() {
       <div className="mb-6 flex items-baseline justify-between">
         <h1 className="text-2xl font-semibold text-slate-900">Holdings</h1>
         <span className="text-xs text-slate-500">
-          Latest snapshot · {positions.length} positions across {kpis.trusts} trusts
+          Latest snapshot · {positions.length} positions across {kpis.trusts} entities
         </span>
       </div>
 
@@ -45,7 +45,7 @@ export default async function HoldingsPage() {
         <KpiTile
           label="Asset classes"
           value={assetClasses.size.toString()}
-          hint={`${kpis.trusts} trusts`}
+          hint={`${kpis.trusts} entities`}
         />
       </div>
 

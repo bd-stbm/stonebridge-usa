@@ -189,16 +189,16 @@ export default async function IncomePage() {
   const scopeNote =
     [
       trusts.length === 1
-        ? `Trust: ${trusts[0]}`
+        ? `Entity: ${trusts[0]}`
         : trusts.length > 1
-          ? `${trusts.length} trusts`
+          ? `${trusts.length} entities`
           : null,
       accounts.length > 0
         ? `${accounts.length} account${accounts.length > 1 ? "s" : ""} scoped`
         : null,
     ]
       .filter(Boolean)
-      .join(" · ") || "All trusts under " + subClient;
+      .join(" · ") || "All entities under " + subClient;
 
   return (
     <main className="mx-auto max-w-7xl space-y-8 px-6 py-8">
@@ -245,7 +245,7 @@ export default async function IncomePage() {
 
       {showByTrust ? (
         <section>
-          <h2 className="mb-3 text-base font-semibold text-slate-900">Income by trust</h2>
+          <h2 className="mb-3 text-base font-semibold text-slate-900">Income by entity</h2>
           <IncomeByTrustTable rows={trustRows} reportingCcy={kpis.reporting_ccy} />
         </section>
       ) : null}

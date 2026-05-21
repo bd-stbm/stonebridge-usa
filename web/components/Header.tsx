@@ -50,7 +50,7 @@ export default async function Header() {
     showSubClientSelector ? listSubClients() : Promise.resolve<string[]>([]),
   ]);
 
-  const trustCrumb = summarise("trusts", currentTrusts);
+  const trustCrumb = summarise("entities", currentTrusts);
   const accountSelected =
     currentAccounts.length === 1
       ? accounts.find(a => a.node_id === currentAccounts[0])?.alias ?? currentAccounts[0]

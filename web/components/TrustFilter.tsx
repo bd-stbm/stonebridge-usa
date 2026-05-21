@@ -76,15 +76,15 @@ export default function TrustFilter({ trusts, currentTrusts }: Props) {
 
   const label =
     currentTrusts.length === 0
-      ? "All trusts"
+      ? "All entities"
       : currentTrusts.length === 1
         ? currentTrusts[0]
-        : `${currentTrusts.length} trusts`;
+        : `${currentTrusts.length} entities`;
 
   return (
     <div ref={ref} className="relative">
       <label className="flex items-center gap-2 text-xs text-slate-500">
-        <span className="hidden sm:inline">Trust</span>
+        <span className="hidden sm:inline">Entity</span>
         <button
           type="button"
           onClick={() => setOpen(o => !o)}
@@ -117,7 +117,7 @@ export default function TrustFilter({ trusts, currentTrusts }: Props) {
                 onChange={clearAll}
                 className="h-3.5 w-3.5"
               />
-              <span className="font-medium">All trusts</span>
+              <span className="font-medium">All entities</span>
             </label>
             <div className="my-1 border-t border-slate-100" />
             {trusts.map(t => (

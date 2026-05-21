@@ -84,39 +84,96 @@ def upsert_gwm(conn, gwm_payload: list[dict]) -> int:
 
 
 def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
-    """Recompute entity_attribution from the current entity tree."""
-    with conn.cursor() as cur:
-        cur.execute("SELECT node_id, parent_node_id, alias, name FROM entity")
-        nodes = {r["node_id"]: (r["parent_node_id"], r["alias"], r["name"])
-                 for r in cur.fetchall()}
+    """Recompute entity_attribution from the current entity tree.
 
-    sub_clients = {nid for nid, (pid, _, _) in nodes.items() if pid == root_node_id}
+    The trust_alias / trust_node_id columns store the position's owning
+    "entity" — which is either:
+
+      - the nearest shared-within-family vehicle ancestor (e.g. "Modyl LP"
+        when Modyl is held jointly by multiple trusts inside one family), OR
+      - the nearest trust ancestor (the default for positions held by a
+        single trust).
+
+    A vehicle is "shared within family" when its group_node_id has 2+
+    distinct trust ancestors. Cross-family shared vehicles are filtered
+    out at sync time (canonical_accounts_under), so their attribution
+    doesn't drive any dashboard surface — only in-family sharing surfaces
+    as its own entity in the UI's Entity filter.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT node_id, parent_node_id, alias, name, group_node_id FROM entity"
+        )
+        nodes = {
+            r["node_id"]: (r["parent_node_id"], r["alias"], r["name"], r["group_node_id"])
+            for r in cur.fetchall()
+        }
+
+    sub_clients = {nid for nid, (pid, _, _, _) in nodes.items() if pid == root_node_id}
 
     def is_trust(alias, name):
         return "trust" in (alias or "").lower() or "trust" in (name or "").lower()
 
+    # Compute trust-ancestor of each node once — needed for the shared-
+    # vehicle detection step. We're not walking up to find sub_client here
+    # because the cheaper unique-trust-ancestor count is all we need.
+    def trust_ancestor_of(start_nid: str) -> str | None:
+        cur_id = nodes[start_nid][0]  # skip self — a node isn't its own ancestor
+        for _ in range(50):
+            if not cur_id or cur_id == "_":
+                return None
+            pid, alias, name, _ = nodes.get(cur_id, (None, None, None, None))
+            if is_trust(alias, name):
+                return cur_id
+            cur_id = pid
+        return None
+
+    # group_node_id -> set of distinct trust ancestors observed across reflections.
+    # If size > 1 the group_node_id is shared across trusts.
+    from collections import defaultdict
+    trust_ancestors_by_group: dict[str, set[str]] = defaultdict(set)
+    for nid, (_, _, _, gnid) in nodes.items():
+        if gnid is None:
+            continue
+        ta = trust_ancestor_of(nid)
+        if ta is not None:
+            trust_ancestors_by_group[gnid].add(ta)
+    shared_groups = {g for g, tas in trust_ancestors_by_group.items() if len(tas) > 1}
+    # Set of node_ids whose own group_node_id is shared — i.e. the shared
+    # vehicles themselves (Modyl LP's three reflections, Mardy LP, etc.).
+    shared_vehicle_nodes = {
+        nid for nid, (_, _, _, gnid) in nodes.items() if gnid in shared_groups
+    }
+
     rows = []
     for nid in nodes:
-        sub_client_nid = sub_client_alias = trust_nid = trust_alias = None
+        sub_client_nid = sub_client_alias = entity_nid = entity_alias = None
         path = []
         cur_id = nid
         for _ in range(50):
             if not cur_id or cur_id == "_":
                 break
-            pid, alias, name = nodes.get(cur_id, (None, None, None))
+            pid, alias, name, _ = nodes.get(cur_id, (None, None, None, None))
             path.append(alias or name or cur_id)
             if cur_id in sub_clients:
                 sub_client_nid = cur_id
                 sub_client_alias = nodes[cur_id][1] or nodes[cur_id][2]
-            if trust_nid is None and is_trust(alias, name) and cur_id != nid:
-                trust_nid = cur_id
-                trust_alias = alias or name
+            # First-encountered entity wins. The walk goes leaf-to-root, so
+            # a shared vehicle directly above a Goldman account (e.g. Modyl
+            # LP) beats a higher-up trust (Mark I Dyne 2010). For accounts
+            # not under any shared vehicle, the first trust ancestor wins
+            # — same as the previous behaviour.
+            if entity_nid is None and cur_id != nid and (
+                cur_id in shared_vehicle_nodes or is_trust(alias, name)
+            ):
+                entity_nid = cur_id
+                entity_alias = alias or name
             cur_id = pid
-        if trust_nid is None and is_trust(nodes[nid][1], nodes[nid][2]):
-            trust_nid = nid
-            trust_alias = nodes[nid][1] or nodes[nid][2]
+        if entity_nid is None and is_trust(nodes[nid][1], nodes[nid][2]):
+            entity_nid = nid
+            entity_alias = nodes[nid][1] or nodes[nid][2]
         rows.append((nid, sub_client_nid, sub_client_alias,
-                     trust_nid, trust_alias, " > ".join(reversed(path))))
+                     entity_nid, entity_alias, " > ".join(reversed(path))))
 
     with conn.cursor() as cur:
         cur.executemany(

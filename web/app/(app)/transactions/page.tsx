@@ -65,16 +65,16 @@ export default async function TransactionsPage({
   const scopeNote =
     [
       trusts.length === 1
-        ? `Trust: ${trusts[0]}`
+        ? `Entity: ${trusts[0]}`
         : trusts.length > 1
-          ? `${trusts.length} trusts`
+          ? `${trusts.length} entities`
           : null,
       accounts.length > 0
         ? `${accounts.length} account${accounts.length > 1 ? "s" : ""} scoped`
         : null,
     ]
       .filter(Boolean)
-      .join(" · ") || "All trusts under " + subClient;
+      .join(" · ") || "All entities under " + subClient;
 
   return (
     <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">

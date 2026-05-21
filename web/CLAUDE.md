@@ -207,6 +207,15 @@ received dividends.
 - **Substring "trust" matches "Deltrust LLC"** — `listTrusts()` queries
   `v_latest_positions` rather than `entity_attribution` so empty LLC
   shells with "trust" in their name don't appear in the dropdown.
+- **`trust_alias` / `trust_node_id` now store the "entity"** — defined
+  as the nearest shared-within-family vehicle ancestor (e.g. "Modyl
+  LP") OR, if none, the nearest trust ancestor. Computed in
+  `tracker/sync_supabase.py::rebuild_attribution`. The UI labels this
+  filter "Entity" / "Entities"; the DB column names are unchanged for
+  brevity. A vehicle is shared-within-family when its `group_node_id`
+  has 2+ distinct trust ancestors (cross-family shared vehicles are
+  filtered out earlier in `canonical_accounts_under`, so any
+  group_node_id with 2+ trust ancestors is by definition in-family).
 - **A new view must be created with `security_invoker = true`** or the
   linter complains and family-scoped RLS will silently leak through it.
 - **A new migration won't auto-apply on Vercel deploy** — push the code,
