@@ -936,17 +936,22 @@ export async function getMonthlySecurityAttribution(
     `getMonthlySecurityAttribution(${trusts.length}t,${accounts.length}a,${assetClasses.length}c)`,
     async () => {
       const excluded = excludedEntities(subClient);
-      const { data, error } = await getSupabaseServer().rpc(
-        "monthly_security_attribution",
-        {
+      // .limit() is mandatory — supabase-js's .rpc() doesn't inherit our
+      // app-level LIMIT_LARGE and Supabase's PostgREST cap silently
+      // truncated the result around 2k rows. Symptom: months past the
+      // truncation row showed empty contributor/detractor lists despite
+      // having data in the DB. ORDER BY in the RPC is (month, security_id)
+      // so truncation drops the latest months first.
+      const { data, error } = await getSupabaseServer()
+        .rpc("monthly_security_attribution", {
           p_sub_client:      subClient,
           p_trusts:          trusts.length ? trusts : null,
           p_accounts:        accounts.length ? accounts : null,
           p_asset_classes:   assetClasses.length ? assetClasses : null,
           p_from_month:      fromMonth,
           p_excluded_trusts: excluded.length ? excluded : null,
-        },
-      );
+        })
+        .limit(LIMIT_LARGE);
       if (error) throw error;
       const rows = (data ?? []) as unknown as Array<
         Omit<MonthlyAttributionRow, "start_mv" | "end_mv" | "flows" | "income" | "gain"> & {
