@@ -8,7 +8,7 @@ import {
   getIndexPrices,
   getLatestPositions,
   getNavSeries,
-  getNavAtOrBeforeForClasses,
+  getNavAtOrBefore,
   getPeriodReturns,
   listIndices,
 } from "@/lib/queries";
@@ -40,8 +40,8 @@ export default async function OverviewPage() {
   // recent snapshot ≤ target date — and also returns that anchor_date so
   // we can label the period start honestly. Other periods (1D / MTD / YTD)
   // already align to dates we have exactly, so they use the snapshot-grid
-  // path. When the global asset_class filter is set, the *ForClasses helper
-  // fans out one RPC call per class and sums.
+  // path. The RPC takes text[] for asset_class so a multi-class filter is
+  // a single round-trip regardless of how many are selected.
   const today = new Date();
   const target6M = computePeriodStart("6m", today);
   const target1Y = computePeriodStart("1y", today);
@@ -49,8 +49,8 @@ export default async function OverviewPage() {
     getLatestPositions(subClient, trusts, accounts, assetClasses),
     getNavSeries(subClient, trusts, accounts, assetClasses),
     listIndices(),
-    getNavAtOrBeforeForClasses(subClient, trusts, accounts, target6M, assetClasses),
-    getNavAtOrBeforeForClasses(subClient, trusts, accounts, target1Y, assetClasses),
+    getNavAtOrBefore(subClient, trusts, accounts, target6M, assetClasses),
+    getNavAtOrBefore(subClient, trusts, accounts, target1Y, assetClasses),
   ]);
   const kpis = computeKpis(positions);
 

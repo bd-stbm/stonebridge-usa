@@ -318,27 +318,47 @@ export async function getNavSeries(
   assetClasses: string[] = [],
 ): Promise<NavPoint[]> {
   return timed(`getNavSeries(${trusts.length}t,${accounts.length}a,${assetClasses.length}c)`, async () => {
-    // When asset-class filter is active, source from the by-class view
-    // and aggregate (it's the only NAV view broken down by asset_class).
-    // Both views return nav_reporting per (date, account[, class]); we
-    // sum per date in JS either way.
-    const fromView = assetClasses.length
-      ? "v_nav_monthly_by_asset_class"
-      : "v_nav_monthly_by_account";
+    // Path A — no asset_class filter: read the cheap pre-aggregated view
+    // v_nav_monthly_by_account, sum per date in JS.
+    // Path B — filter active: use the nav_series_filtered RPC so the
+    // asset_class WHERE clause prunes position_snapshot rows BEFORE
+    // GROUP BY. PostgREST's view path can't push the filter past the
+    // view's GROUP BY (see migration 020 for the why).
+    const excluded = excludedEntities(subClient);
+    if (assetClasses.length > 0) {
+      const { data, error } = await getSupabaseServer().rpc(
+        "nav_series_filtered",
+        {
+          p_sub_client:       subClient,
+          p_trusts:           trusts.length ? trusts : null,
+          p_accounts:         accounts.length ? accounts : null,
+          p_asset_classes:    assetClasses,
+          p_excluded_trusts:  excluded.length ? excluded : null,
+        },
+      );
+      if (error) throw error;
+      const rows = (data ?? []) as unknown as Array<{
+        snapshot_date: string;
+        nav_reporting: number | string | null;
+      }>;
+      return rows
+        .map(r => ({
+          snapshot_date: r.snapshot_date,
+          nav: Number(r.nav_reporting ?? 0),
+        }))
+        .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+    }
+
     let q = getSupabaseServer()
-      .from(fromView)
+      .from("v_nav_monthly_by_account")
       .select("snapshot_date, nav_reporting")
       .eq("sub_client_alias", subClient);
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
-    const excluded = excludedEntities(subClient);
     if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
-    if (assetClasses.length) q = q.in("asset_class", assetClasses);
     const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
 
-    // Aggregate per snapshot_date across accounts in JS — PostgREST doesn't
-    // expose SUM/GROUP BY without an RPC, and the row count is small.
     const rows = (data ?? []) as unknown as Array<{
       snapshot_date: string;
       nav_reporting: number | null;
@@ -452,35 +472,48 @@ export async function getNavSeriesByTrust(
   assetClasses: string[] = [],
 ): Promise<Record<string, NavPoint[]>> {
   return timed(`getNavSeriesByTrust(${trusts.length}t,${accounts.length}a,${assetClasses.length}c)`, async () => {
-    // Per-(snapshot_date, account) NAV rows aggregated by trust_alias in JS
-    // for the Performance page's matrix. When asset_class filter is active
-    // switch to v_nav_monthly_by_asset_class — it carries trust_alias too
-    // and is the only NAV view that exposes asset_class.
-    const fromView = assetClasses.length
-      ? "v_nav_monthly_by_asset_class"
-      : "v_nav_monthly_by_account";
-    let q = getSupabaseServer()
-      .from(fromView)
-      .select("snapshot_date, trust_alias, nav_reporting")
-      .eq("sub_client_alias", subClient)
-      .not("trust_alias", "is", null);
-    if (trusts.length) q = q.in("trust_alias", trusts);
-    if (accounts.length) q = q.in("account_node_id", accounts);
+    // When asset_class filter is active, use nav_series_by_trust_filtered
+    // RPC to push the filter down ahead of GROUP BY (same reason as
+    // getNavSeries — see migration 020). Otherwise the cheap view path.
     const excluded = excludedEntities(subClient);
-    // Two .not()s on one builder otherwise hit TS's deep-instantiation limit.
-    if (excluded.length)
-      q = (q as unknown as {
-        not: (col: string, op: string, val: string) => typeof q;
-      }).not("trust_alias", "in", postgrestInList(excluded));
-    if (assetClasses.length) q = q.in("asset_class", assetClasses);
-    const { data, error } = await q.limit(LIMIT_LARGE);
-    if (error) throw error;
 
-    const rows = (data ?? []) as unknown as Array<{
+    type Row = {
       snapshot_date: string;
       trust_alias: string;
-      nav_reporting: number | null;
-    }>;
+      nav_reporting: number | string | null;
+    };
+    let rows: Row[];
+
+    if (assetClasses.length > 0) {
+      const { data, error } = await getSupabaseServer().rpc(
+        "nav_series_by_trust_filtered",
+        {
+          p_sub_client:       subClient,
+          p_trusts:           trusts.length ? trusts : null,
+          p_accounts:         accounts.length ? accounts : null,
+          p_asset_classes:    assetClasses,
+          p_excluded_trusts:  excluded.length ? excluded : null,
+        },
+      );
+      if (error) throw error;
+      rows = (data ?? []) as unknown as Row[];
+    } else {
+      let q = getSupabaseServer()
+        .from("v_nav_monthly_by_account")
+        .select("snapshot_date, trust_alias, nav_reporting")
+        .eq("sub_client_alias", subClient)
+        .not("trust_alias", "is", null);
+      if (trusts.length) q = q.in("trust_alias", trusts);
+      if (accounts.length) q = q.in("account_node_id", accounts);
+      // Two .not()s on one builder otherwise hit TS's deep-instantiation limit.
+      if (excluded.length)
+        q = (q as unknown as {
+          not: (col: string, op: string, val: string) => typeof q;
+        }).not("trust_alias", "in", postgrestInList(excluded));
+      const { data, error } = await q.limit(LIMIT_LARGE);
+      if (error) throw error;
+      rows = (data ?? []) as unknown as Row[];
+    }
 
     const byTrust: Map<string, Map<string, number>> = new Map();
     for (const r of rows) {
@@ -825,40 +858,36 @@ export interface NavAnchor {
 
 /**
  * Raw NAV at the latest position_snapshot on or before targetDate, via
- * the nav_at_or_before RPC. Returns the actual anchor date alongside the
- * value so the caller can label the start of the period honestly (Masttro
- * has no daily historicals, so the anchor is typically the previous
- * month-end). Returns null when no snapshot exists on or before the
- * target.
+ * the nav_at_or_before RPC. Returns the actual anchor date alongside
+ * the value so the caller can label the start of the period honestly
+ * (Masttro has no daily historicals, so the anchor is typically the
+ * previous month-end). Returns null when no snapshot exists on or
+ * before the target.
+ *
+ * Per migration 020 the RPC takes a `text[]` of asset classes (empty /
+ * undefined = no filter) so we do a single round-trip even when several
+ * classes are selected via the global filter.
  */
 export async function getNavAtOrBefore(
   subClient: string,
   trusts: string[],
   accounts: string[],
   targetDate: string,
-  // Optional asset_class filter. Page convention: "Unclassified" maps to
-  // NULL asset_class in the DB, so we pass an empty string for that
-  // bucket (the RPC special-cases "" → IS NULL).
-  assetClass?: string,
+  assetClasses: string[] = [],
 ): Promise<NavAnchor | null> {
-  const label = assetClass !== undefined
-    ? `nav_at_or_before(${targetDate},${assetClass || "<null>"})`
-    : `nav_at_or_before(${targetDate})`;
+  const label = `nav_at_or_before(${targetDate},${assetClasses.length}c)`;
   return timed(label, async () => {
     const excluded = excludedEntities(subClient);
-    const params: Record<string, unknown> = {
-      p_sub_client: subClient,
-      p_trusts: trusts.length ? trusts : null,
-      p_accounts: accounts.length ? accounts : null,
-      p_target_date: targetDate,
-      p_excluded_trusts: excluded.length ? excluded : null,
-    };
-    if (assetClass !== undefined) {
-      params.p_asset_class = assetClass === "Unclassified" ? "" : assetClass;
-    }
     const { data, error } = await getSupabaseServer().rpc(
       "nav_at_or_before",
-      params,
+      {
+        p_sub_client:       subClient,
+        p_trusts:           trusts.length ? trusts : null,
+        p_accounts:         accounts.length ? accounts : null,
+        p_target_date:      targetDate,
+        p_asset_classes:    assetClasses.length ? assetClasses : null,
+        p_excluded_trusts:  excluded.length ? excluded : null,
+      },
     );
     if (error) {
       const code = (error as { code?: string }).code;
@@ -877,36 +906,6 @@ export async function getNavAtOrBefore(
     if (!Number.isFinite(n)) return null;
     return { nav: n, anchorDate: row.anchor_date };
   });
-}
-
-/**
- * Multi-class variant of getNavAtOrBefore. The RPC accepts a single asset
- * class at a time, so when the global filter has N classes selected we
- * fan out N calls in parallel and sum their navs. The shared anchor_date
- * comes from any one of the results (they all resolve to the same latest
- * position_snapshot <= targetDate).
- *
- * Empty assetClasses → identical to getNavAtOrBefore(..., undefined).
- */
-export async function getNavAtOrBeforeForClasses(
-  subClient: string,
-  trusts: string[],
-  accounts: string[],
-  targetDate: string,
-  assetClasses: string[],
-): Promise<NavAnchor | null> {
-  if (assetClasses.length === 0) {
-    return getNavAtOrBefore(subClient, trusts, accounts, targetDate);
-  }
-  const results = await Promise.all(
-    assetClasses.map(ac =>
-      getNavAtOrBefore(subClient, trusts, accounts, targetDate, ac),
-    ),
-  );
-  const present = results.filter((r): r is NavAnchor => r != null);
-  if (present.length === 0) return null;
-  const nav = present.reduce((s, r) => s + r.nav, 0);
-  return { nav, anchorDate: present[0].anchorDate };
 }
 
 export async function getIndexPrices(
