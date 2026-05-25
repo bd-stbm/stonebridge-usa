@@ -925,6 +925,12 @@ export interface MonthlyAttributionRow {
   gain: number;             // (end - start) - flows + income (total return)
 }
 
+// Top contributors + detractors per month to fetch. UI shows 10 of each;
+// 5 extra rows on each side covers cases where the same security ranks
+// in both the top of the gain DESC and the top of the gain ASC lists
+// for the same month (which shouldn't happen, but the buffer is cheap).
+const ATTRIBUTION_TOP_PER_MONTH = 15;
+
 export async function getMonthlySecurityAttribution(
   subClient: string = DEFAULT_SUB_CLIENT,
   trusts: string[] = [],
@@ -936,12 +942,12 @@ export async function getMonthlySecurityAttribution(
     `getMonthlySecurityAttribution(${trusts.length}t,${accounts.length}a,${assetClasses.length}c)`,
     async () => {
       const excluded = excludedEntities(subClient);
-      // .limit() is mandatory — supabase-js's .rpc() doesn't inherit our
-      // app-level LIMIT_LARGE and Supabase's PostgREST cap silently
-      // truncated the result around 2k rows. Symptom: months past the
-      // truncation row showed empty contributor/detractor lists despite
-      // having data in the DB. ORDER BY in the RPC is (month, security_id)
-      // so truncation drops the latest months first.
+      // p_top_per_month bounds the response server-side at ~30 rows per
+      // month (top 15 gainers + top 15 losers). Without it we hit
+      // Supabase's project db-max-rows cap for larger trusts and lose
+      // recent months from the drill-in entirely. .limit(LIMIT_LARGE)
+      // remains as belt-and-braces — even at top_per_month=15 across a
+      // 14-month window we're well under 1k rows.
       const { data, error } = await getSupabaseServer()
         .rpc("monthly_security_attribution", {
           p_sub_client:      subClient,
@@ -950,6 +956,7 @@ export async function getMonthlySecurityAttribution(
           p_asset_classes:   assetClasses.length ? assetClasses : null,
           p_from_month:      fromMonth,
           p_excluded_trusts: excluded.length ? excluded : null,
+          p_top_per_month:   ATTRIBUTION_TOP_PER_MONTH,
         })
         .limit(LIMIT_LARGE);
       if (error) throw error;
