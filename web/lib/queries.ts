@@ -26,6 +26,18 @@ const LIMIT_LARGE = 100000;
 // stripped out of every scoped query's WHERE clause, and are passed as
 // p_excluded_trusts to reconstructed_nav_at so 6M / 1Y returns also drop
 // them. Driven by client preference; edit here to add or remove.
+// Always hidden across every sub-client. Cross-family shared vehicles
+// (Mamidy, ECA Europe Partners) and small Masttro-tree quirks (Berdy
+// surfaced via the Dyne US Retirement → Australian Superannuation
+// subtree) that surfaced after the shared-vehicle canonical-account
+// fix (commit 67571cf). Tiny NAVs in every case; user opted to hide.
+const EXCLUDED_ENTITIES_GLOBAL: string[] = [
+  "Berdy Investment Trust",
+  "Mamidy Investments LLC",
+  "ECA Europe Partners",
+  "Optsia Investments LLC",
+];
+
 const EXCLUDED_ENTITIES_BY_SUB_CLIENT: Record<string, string[]> = {
   "Dyne Family (US)": [
     "Sibling Trust IFO Colin Dyne",
@@ -36,7 +48,10 @@ const EXCLUDED_ENTITIES_BY_SUB_CLIENT: Record<string, string[]> = {
 };
 
 function excludedEntities(subClient: string): string[] {
-  return EXCLUDED_ENTITIES_BY_SUB_CLIENT[subClient] ?? [];
+  return [
+    ...EXCLUDED_ENTITIES_GLOBAL,
+    ...(EXCLUDED_ENTITIES_BY_SUB_CLIENT[subClient] ?? []),
+  ];
 }
 
 // PostgREST `in` value list with safe quoting for values containing
