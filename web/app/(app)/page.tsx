@@ -2,29 +2,27 @@ import KpiTile from "@/components/KpiTile";
 import ReturnsTile from "@/components/ReturnsTile";
 import HoldingsTable from "@/components/HoldingsTable";
 import NavChart from "@/components/NavChart";
+import AssetAllocationTable from "@/components/AssetAllocationTable";
 import {
   computeKpis,
-  getFlowsByAssetClass,
   getIndexPrices,
   getLatestPositions,
   getNavSeries,
-  getNavSeriesByAssetClass,
-  getNavAtOrBefore,
+  getNavAtOrBeforeForClasses,
   getPeriodReturns,
   listIndices,
 } from "@/lib/queries";
 import {
   getSelectedAccounts,
+  getSelectedAssetClasses,
   getSelectedBenchmark,
   getSelectedSubClient,
   getSelectedTrusts,
 } from "@/lib/trust-filter";
 import {
-  computeAllPeriodReturns,
   computeIndexReturnsForAllPeriods,
   computePeriodStart,
   type PeriodKey,
-  type PeriodReturn,
 } from "@/lib/returns";
 import { money } from "@/lib/format";
 
@@ -35,33 +33,29 @@ export default async function OverviewPage() {
   const subClient = getSelectedSubClient();
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
+  const assetClasses = getSelectedAssetClasses();
   const benchmarkTicker = getSelectedBenchmark();
-  // 6M / 1Y start NAVs via the nav_at_or_before RPC. Masttro only exposes
+  // 6M / 12M start NAVs via the nav_at_or_before RPC. Masttro only exposes
   // month-end historicals, so the RPC returns the raw NAV at the most
   // recent snapshot ≤ target date — and also returns that anchor_date so
-  // we can label the period start honestly (e.g. "Apr 30 2025" for 1Y if
-  // today is May 21 2026). Other periods (1D / MTD / YTD) already align
-  // to dates we have exactly, so they use the snapshot-grid path.
+  // we can label the period start honestly. Other periods (1D / MTD / YTD)
+  // already align to dates we have exactly, so they use the snapshot-grid
+  // path. When the global asset_class filter is set, the *ForClasses helper
+  // fans out one RPC call per class and sums.
   const today = new Date();
   const target6M = computePeriodStart("6m", today);
   const target1Y = computePeriodStart("1y", today);
-  // Everything in this batch is independent — fire in parallel for one
-  // network round-trip instead of three sequential ones.
-  const [positions, navSeries, indices, navByClass, flowsByClass, nav6M, nav1Y] =
-    await Promise.all([
-      getLatestPositions(subClient, trusts, accounts),
-      getNavSeries(subClient, trusts, accounts),
-      listIndices(),
-      getNavSeriesByAssetClass(subClient, trusts, accounts),
-      getFlowsByAssetClass(subClient, trusts, accounts),
-      getNavAtOrBefore(subClient, trusts, accounts, target6M),
-      getNavAtOrBefore(subClient, trusts, accounts, target1Y),
-    ]);
+  const [positions, navSeries, indices, nav6M, nav1Y] = await Promise.all([
+    getLatestPositions(subClient, trusts, accounts, assetClasses),
+    getNavSeries(subClient, trusts, accounts, assetClasses),
+    listIndices(),
+    getNavAtOrBeforeForClasses(subClient, trusts, accounts, target6M, assetClasses),
+    getNavAtOrBeforeForClasses(subClient, trusts, accounts, target1Y, assetClasses),
+  ]);
   const kpis = computeKpis(positions);
 
   // Use the yfinance-refreshed sums as the end-of-period NAV for every return,
   // and as the 1D start NAV (today's positions × yfinance's previous close).
-  // Falls back to the Masttro snapshot value when yfinance data is missing.
   const endNav = positions.reduce(
     (s, p) => s + Number(p.mv_reporting ?? 0),
     0,
@@ -72,22 +66,18 @@ export default async function OverviewPage() {
     0,
   );
   const startNavByPeriod: Partial<Record<PeriodKey, { nav: number; date: string }>> = {};
-  // Use the actual anchor_date returned by the RPC so the Returns tile's
-  // displayed start date matches the snapshot the NAV came from, not the
-  // synthetic target date.
   if (nav6M != null) startNavByPeriod["6m"] = { nav: nav6M.nav, date: nav6M.anchorDate };
   if (nav1Y != null) startNavByPeriod["1y"] = { nav: nav1Y.nav, date: nav1Y.anchorDate };
 
-  // Pull benchmark price history starting from the earliest portfolio snapshot
-  // (or 5y back if there's no portfolio data yet). Run in parallel with
-  // getPeriodReturns — they're independent.
+  // Pull benchmark price history from the earliest portfolio snapshot
+  // (or 5y back if there's no portfolio data yet).
   const benchmarkFromDate =
     navSeries[0]?.snapshot_date ??
     new Date(Date.UTC(new Date().getUTCFullYear() - 5, 0, 1))
       .toISOString()
       .slice(0, 10);
   const [returns, indexPrices] = await Promise.all([
-    getPeriodReturns(subClient, trusts, accounts, {
+    getPeriodReturns(subClient, trusts, accounts, assetClasses, {
       endNav,
       endNavYesterday,
       startNavByPeriod,
@@ -99,72 +89,21 @@ export default async function OverviewPage() {
   const benchmark =
     indices.find(i => i.ticker === benchmarkTicker) ?? indices[0] ?? null;
 
-  // Per-asset-class returns. Group today's positions by asset_class so the
-  // end NAV uses the same refreshed (yfinance) values, then run modified
-  // Dietz with per-class flows from getFlowsByAssetClass. The flow rule
-  // (Buy + Sell + dividends + interest, sign-flipped so flow is "into the
-  // class") matches Masttro's transferInOut definition at the asset-class
-  // level — see queries.ts for the verification against /Performance.
-  const positionsByClass = new Map<string, typeof positions>();
-  for (const p of positions) {
-    const ac = p.asset_class ?? "Unclassified";
-    const arr = positionsByClass.get(ac) ?? [];
-    arr.push(p);
-    positionsByClass.set(ac, arr);
-  }
-  // Fetch 6M / 1Y start NAVs per asset class via the asset-class-aware
-  // nav_at_or_before RPC. Each returns the raw month-end NAV plus its
-  // anchor_date, so the displayed start date matches the actual snapshot.
-  // All 2*N calls fire in parallel.
-  const acNames = Array.from(new Set(Object.keys(navByClass)));
-  const acStartNavPromises = acNames.flatMap(ac => [
-    getNavAtOrBefore(subClient, trusts, accounts, target6M, ac),
-    getNavAtOrBefore(subClient, trusts, accounts, target1Y, ac),
-  ]);
-  const acStartNavResults = await Promise.all(acStartNavPromises);
-  const acStartNavByPeriod: Record<
-    string,
-    Partial<Record<PeriodKey, { nav: number; date: string }>>
-  > = {};
-  acNames.forEach((ac, i) => {
-    const nav6 = acStartNavResults[i * 2];
-    const nav1 = acStartNavResults[i * 2 + 1];
-    const overrides: Partial<Record<PeriodKey, { nav: number; date: string }>> = {};
-    if (nav6 != null) overrides["6m"] = { nav: nav6.nav, date: nav6.anchorDate };
-    if (nav1 != null) overrides["1y"] = { nav: nav1.nav, date: nav1.anchorDate };
-    acStartNavByPeriod[ac] = overrides;
-  });
-  const returnsByAssetClass: Record<string, Record<PeriodKey, PeriodReturn>> = {};
-  for (const [ac, navs] of Object.entries(navByClass)) {
-    const classPositions = positionsByClass.get(ac) ?? [];
-    const acEndNav = classPositions.reduce(
-      (s, p) => s + Number(p.mv_reporting ?? 0),
-      0,
-    );
-    const acEndNavYesterday = classPositions.reduce(
-      (s, p) => s + Number(p.mv_reporting_yesterday ?? p.mv_reporting ?? 0),
-      0,
-    );
-    returnsByAssetClass[ac] = computeAllPeriodReturns(
-      navs.map(n => ({ date: n.snapshot_date, nav: n.nav })),
-      flowsByClass[ac] ?? [],
-      {
-        endNav: acEndNav,
-        endNavYesterday: acEndNavYesterday,
-        startNavByPeriod: acStartNavByPeriod[ac],
-      },
-    );
-  }
-  const indexReturnsByAssetClass: Record<
-    string,
-    Record<PeriodKey, number | null>
-  > = {};
-  for (const ac of Object.keys(returnsByAssetClass)) {
-    indexReturnsByAssetClass[ac] = computeIndexReturnsForAllPeriods(
-      indexPrices,
-      returnsByAssetClass[ac],
-    );
-  }
+  // Asset allocation: aggregate today's refreshed positions by asset_class.
+  // Drives the AssetAllocationTable; clicking a row sets the global filter.
+  // Computed in JS off the positions list — no extra round-trip.
+  const allocation = (() => {
+    const totals = new Map<string, number>();
+    for (const p of positions) {
+      const ac = p.asset_class ?? "Unclassified";
+      totals.set(ac, (totals.get(ac) ?? 0) + Number(p.mv_reporting ?? 0));
+    }
+    const arr = Array.from(totals.entries())
+      .map(([asset_class, nav]) => ({ asset_class, nav }))
+      .sort((a, b) => b.nav - a.nav);
+    const total = arr.reduce((s, r) => s + r.nav, 0);
+    return arr.map(r => ({ ...r, share: total > 0 ? r.nav / total : 0 }));
+  })();
 
   // Collapse the series to one point per calendar month — pick the latest
   // snapshot in each month. For completed months that's the month-end
@@ -207,7 +146,7 @@ export default async function OverviewPage() {
 
   console.log(
     `[page] Overview total ${Date.now() - _renderStart}ms ` +
-      `(${trusts.length}t,${accounts.length}a)`,
+      `(${trusts.length}t,${accounts.length}a,${assetClasses.length}c)`,
   );
 
   return (
@@ -220,8 +159,6 @@ export default async function OverviewPage() {
             indexReturns={indexReturns}
             benchmark={benchmark}
             availableBenchmarks={indices}
-            returnsByAssetClass={returnsByAssetClass}
-            indexReturnsByAssetClass={indexReturnsByAssetClass}
             reportingCcy={kpis.reporting_ccy}
           />
         </div>
@@ -231,6 +168,14 @@ export default async function OverviewPage() {
           tone={kpis.unrealized_gl >= 0 ? "positive" : "negative"}
         />
       </div>
+
+      <section className="mt-8">
+        <AssetAllocationTable
+          rows={allocation}
+          currentClasses={assetClasses}
+          reportingCcy={kpis.reporting_ccy}
+        />
+      </section>
 
       <section className="mt-8">
         <NavChart data={chartData} />

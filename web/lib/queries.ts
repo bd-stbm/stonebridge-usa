@@ -46,6 +46,47 @@ function postgrestInList(values: string[]): string {
   return `(${values.map(v => `"${v}"`).join(",")})`;
 }
 
+// Sentinel: NULL asset_class is presented to users as "Unclassified" by
+// v_nav_monthly_by_asset_class (COALESCE) and by the page-layer code.
+// When the filter cookie contains this string we translate it to an
+// IS NULL clause via PostgREST's `.or()` syntax.
+const UNCLASSIFIED = "Unclassified";
+
+// Apply an asset_class filter to a Supabase query builder. Mirrors the
+// `.in("asset_class", ...)` pattern but also handles the "Unclassified"
+// (NULL) bucket via a postgrest `.or()` combining `in.(...)` and
+// `is.null`. Caller must ensure the underlying view/table has an
+// asset_class column (v_positions_refreshed, v_transactions,
+// v_income_monthly all do; v_external_flows and v_nav_monthly_by_account
+// do not — see callers for how those are handled).
+//
+// Typed via a structural Q so each caller can pass either a freshly-
+// chained query (PostgrestFilterBuilder) or an already-narrowed one and
+// get the same return type back. The structural cast trades the strict
+// generated types for usability — same pattern as the existing `.not()`
+// escape hatches elsewhere in this file.
+function applyAssetClassFilter<Q>(q: Q, classes: string[]): Q {
+  if (!classes.length) return q;
+  const includesNull = classes.includes(UNCLASSIFIED);
+  const named = classes.filter(c => c !== UNCLASSIFIED);
+  if (!includesNull) {
+    return (q as unknown as { in: (c: string, v: string[]) => Q }).in(
+      "asset_class",
+      named,
+    );
+  }
+  if (named.length === 0) {
+    return (q as unknown as { is: (c: string, v: null) => Q }).is(
+      "asset_class",
+      null,
+    );
+  }
+  // Both real classes + NULL bucket. Use a single .or() so we don't need
+  // to issue two queries.
+  const orClause = `asset_class.in.${postgrestInList(named)},asset_class.is.null`;
+  return (q as unknown as { or: (s: string) => Q }).or(orClause);
+}
+
 // Per-query timing wrapper. Logs `[q] <label> <ms>ms (<rows> rows)` to
 // stdout — picked up by Vercel function logs. Wraps every exported query
 // in this file so we can compare wall-clock costs after a filter change.
@@ -133,6 +174,27 @@ export async function listSubClients(): Promise<string[]> {
   });
 }
 
+export async function listAssetClasses(
+  subClient: string = DEFAULT_SUB_CLIENT,
+): Promise<string[]> {
+  return timed(`listAssetClasses`, async () => {
+    // Source from v_latest_positions so only classes with at least one
+    // current holding under this sub-client show up in the dropdown. NULL
+    // asset_class is surfaced as "Unclassified" — matches the COALESCE
+    // alias used by v_nav_monthly_by_asset_class and the page layer.
+    const { data, error } = await getSupabaseServer()
+      .from("v_latest_positions")
+      .select("asset_class")
+      .eq("sub_client_alias", subClient)
+      .limit(LIMIT_LARGE);
+    if (error) throw error;
+    const rows = (data ?? []) as unknown as Array<{ asset_class: string | null }>;
+    const set = new Set<string>();
+    for (const r of rows) set.add(r.asset_class ?? UNCLASSIFIED);
+    return Array.from(set).sort();
+  });
+}
+
 export interface AccountOption {
   node_id: string;
   alias: string;
@@ -215,8 +277,9 @@ export async function getLatestPositions(
   subClient: string = DEFAULT_SUB_CLIENT,
   trusts: string[] = [],
   accounts: string[] = [],
+  assetClasses: string[] = [],
 ): Promise<Position[]> {
-  return timed(`getLatestPositions(${trusts.length}t,${accounts.length}a)`, async () => {
+  return timed(`getLatestPositions(${trusts.length}t,${accounts.length}a,${assetClasses.length}c)`, async () => {
     // Query v_positions_refreshed (joins yfinance via pricing_refresh) so the
     // NAV figures throughout the dashboard reflect today's market price when
     // yfinance has the security. PostgREST alias `mv_reporting:mv_reporting_refreshed`
@@ -239,6 +302,7 @@ export async function getLatestPositions(
     if (accounts.length) q = q.in("account_node_id", accounts);
     const excluded = excludedEntities(subClient);
     if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
+    q = applyAssetClassFilter(q, assetClasses);
     const { data, error } = await q
       .order("mv_reporting_refreshed", { ascending: false, nullsFirst: false })
       .limit(LIMIT_LARGE);
@@ -251,16 +315,25 @@ export async function getNavSeries(
   subClient: string = DEFAULT_SUB_CLIENT,
   trusts: string[] = [],
   accounts: string[] = [],
+  assetClasses: string[] = [],
 ): Promise<NavPoint[]> {
-  return timed(`getNavSeries(${trusts.length}t,${accounts.length}a)`, async () => {
+  return timed(`getNavSeries(${trusts.length}t,${accounts.length}a,${assetClasses.length}c)`, async () => {
+    // When asset-class filter is active, source from the by-class view
+    // and aggregate (it's the only NAV view broken down by asset_class).
+    // Both views return nav_reporting per (date, account[, class]); we
+    // sum per date in JS either way.
+    const fromView = assetClasses.length
+      ? "v_nav_monthly_by_asset_class"
+      : "v_nav_monthly_by_account";
     let q = getSupabaseServer()
-      .from("v_nav_monthly_by_account")
+      .from(fromView)
       .select("snapshot_date, nav_reporting")
       .eq("sub_client_alias", subClient);
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
     const excluded = excludedEntities(subClient);
     if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
+    if (assetClasses.length) q = q.in("asset_class", assetClasses);
     const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
 
@@ -305,41 +378,63 @@ export async function getPeriodReturns(
   subClient: string = DEFAULT_SUB_CLIENT,
   trusts: string[] = [],
   accounts: string[] = [],
+  assetClasses: string[] = [],
   overrides: PeriodReturnOverrides = {},
 ): Promise<Record<PeriodKey, PeriodReturn>> {
-  return timed(`getPeriodReturns(${trusts.length}t,${accounts.length}a)`, async () => {
+  return timed(`getPeriodReturns(${trusts.length}t,${accounts.length}a,${assetClasses.length}c)`, async () => {
     const navs =
-      overrides.navs ?? (await getNavSeries(subClient, trusts, accounts));
+      overrides.navs ?? (await getNavSeries(subClient, trusts, accounts, assetClasses));
     if (navs.length === 0) {
       return computeAllPeriodReturns([], [], overrides);
     }
 
-    // Pull external flows back to the earliest NAV date. PostgREST filters
-    // can't see our app-level cookie; we filter by date/scope here.
     const earliest = navs[0].snapshot_date;
-    let q = getSupabaseServer()
-      .from("v_external_flows")
-      .select(
-        "transaction_date, net_amount_reporting, trust_alias, " +
-          "sub_client_alias, account_node_id",
-      )
-      .eq("sub_client_alias", subClient)
-      .gte("transaction_date", earliest);
-    if (trusts.length) q = q.in("trust_alias", trusts);
-    if (accounts.length) q = q.in("account_node_id", accounts);
-    const excluded = excludedEntities(subClient);
-    if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
-    const { data, error } = await q.limit(LIMIT_LARGE);
-    if (error) throw error;
 
-    const flowRows = (data ?? []) as unknown as Array<{
-      transaction_date: string;
-      net_amount_reporting: number | null;
-    }>;
-    const flows: Flow[] = flowRows.map(r => ({
-      date: r.transaction_date,
-      amount: Number(r.net_amount_reporting ?? 0),
-    }));
+    // Flow source depends on whether an asset-class filter is active:
+    //   - No filter → v_external_flows (Deposit / Withdrawal at trust level).
+    //     Trust-level cash flows aren't asset-class-typed, so they're the
+    //     right thing to subtract from the all-class NAV.
+    //   - Filter active → per-class flows (Buy/Sell/dividends/interest
+    //     against securities of the selected classes). External cash flows
+    //     drop out because they have no asset_class — landing in cash
+    //     before being deployed.
+    let flows: Flow[];
+    if (assetClasses.length === 0) {
+      let q = getSupabaseServer()
+        .from("v_external_flows")
+        .select(
+          "transaction_date, net_amount_reporting, trust_alias, " +
+            "sub_client_alias, account_node_id",
+        )
+        .eq("sub_client_alias", subClient)
+        .gte("transaction_date", earliest);
+      if (trusts.length) q = q.in("trust_alias", trusts);
+      if (accounts.length) q = q.in("account_node_id", accounts);
+      const excluded = excludedEntities(subClient);
+      if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
+      const { data, error } = await q.limit(LIMIT_LARGE);
+      if (error) throw error;
+      const flowRows = (data ?? []) as unknown as Array<{
+        transaction_date: string;
+        net_amount_reporting: number | null;
+      }>;
+      flows = flowRows.map(r => ({
+        date: r.transaction_date,
+        amount: Number(r.net_amount_reporting ?? 0),
+      }));
+    } else {
+      const byClass = await getFlowsByAssetClass(
+        subClient,
+        trusts,
+        accounts,
+        earliest,
+      );
+      flows = [];
+      for (const ac of assetClasses) {
+        const arr = byClass[ac];
+        if (arr) flows.push(...arr);
+      }
+    }
 
     const navPoints: DietzNavPoint[] = navs.map(n => ({
       date: n.snapshot_date,
@@ -354,14 +449,18 @@ export async function getNavSeriesByTrust(
   subClient: string = DEFAULT_SUB_CLIENT,
   trusts: string[] = [],
   accounts: string[] = [],
+  assetClasses: string[] = [],
 ): Promise<Record<string, NavPoint[]>> {
-  return timed(`getNavSeriesByTrust(${trusts.length}t,${accounts.length}a)`, async () => {
-    // Per-(snapshot_date, account) NAV rows from v_nav_monthly_by_account,
-    // aggregated by trust_alias in JS for the Performance page's matrix.
-    // When global trust filter is set we get one trust back; when null we get
-    // all trusts under the sub-client.
+  return timed(`getNavSeriesByTrust(${trusts.length}t,${accounts.length}a,${assetClasses.length}c)`, async () => {
+    // Per-(snapshot_date, account) NAV rows aggregated by trust_alias in JS
+    // for the Performance page's matrix. When asset_class filter is active
+    // switch to v_nav_monthly_by_asset_class — it carries trust_alias too
+    // and is the only NAV view that exposes asset_class.
+    const fromView = assetClasses.length
+      ? "v_nav_monthly_by_asset_class"
+      : "v_nav_monthly_by_account";
     let q = getSupabaseServer()
-      .from("v_nav_monthly_by_account")
+      .from(fromView)
       .select("snapshot_date, trust_alias, nav_reporting")
       .eq("sub_client_alias", subClient)
       .not("trust_alias", "is", null);
@@ -373,6 +472,7 @@ export async function getNavSeriesByTrust(
       q = (q as unknown as {
         not: (col: string, op: string, val: string) => typeof q;
       }).not("trust_alias", "in", postgrestInList(excluded));
+    if (assetClasses.length) q = q.in("asset_class", assetClasses);
     const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
 
@@ -410,14 +510,30 @@ export async function getFlowsByTrust(
   trusts: string[] = [],
   accounts: string[] = [],
   fromDate: string = "2020-01-01",
+  assetClasses: string[] = [],
 ): Promise<Record<string, Flow[]>> {
-  return timed(`getFlowsByTrust(${trusts.length}t,${accounts.length}a)`, async () => {
+  return timed(`getFlowsByTrust(${trusts.length}t,${accounts.length}a,${assetClasses.length}c)`, async () => {
+    // No filter → external flows (trust-level deposits/withdrawals).
+    // Filter active → per-class flows from v_transactions, sign-flipped
+    // (same rule as getFlowsByAssetClass) and grouped by trust here.
+    const useClassFlows = assetClasses.length > 0;
+    const view = useClassFlows ? "v_transactions" : "v_external_flows";
     let q = getSupabaseServer()
-      .from("v_external_flows")
+      .from(view)
       .select("transaction_date, net_amount_reporting, trust_alias")
       .eq("sub_client_alias", subClient)
       .gte("transaction_date", fromDate)
       .not("trust_alias", "is", null);
+    if (useClassFlows) {
+      q = q.in("transaction_type_clean", [
+        "Buy",
+        "Sell",
+        "Cash Dividends",
+        "Interest",
+        "Income",
+      ]);
+      q = q.in("asset_class", assetClasses);
+    }
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
     const excluded = excludedEntities(subClient);
@@ -434,13 +550,16 @@ export async function getFlowsByTrust(
       net_amount_reporting: number | null;
       trust_alias: string;
     }>;
+    // For class-filter path, negate so flow is "into the class" (Buy → +,
+    // Sell/Dividend/Interest → -). Mirror getFlowsByAssetClass sign rule.
+    const sign = useClassFlows ? -1 : 1;
 
     const out: Record<string, Flow[]> = {};
     for (const r of rows) {
       if (!out[r.trust_alias]) out[r.trust_alias] = [];
       out[r.trust_alias].push({
         date: r.transaction_date,
-        amount: Number(r.net_amount_reporting ?? 0),
+        amount: sign * Number(r.net_amount_reporting ?? 0),
       });
     }
     return out;
@@ -470,8 +589,9 @@ export async function getFlowsByAssetClass(
   trusts: string[] = [],
   accounts: string[] = [],
   fromDate: string = "2020-01-01",
+  assetClasses: string[] = [],
 ): Promise<Record<string, Flow[]>> {
-  return timed(`getFlowsByAssetClass(${trusts.length}t,${accounts.length}a)`, async () => {
+  return timed(`getFlowsByAssetClass(${trusts.length}t,${accounts.length}a,${assetClasses.length}c)`, async () => {
     let q = getSupabaseServer()
       .from("v_transactions")
       .select("transaction_date, asset_class, net_amount_reporting")
@@ -488,6 +608,7 @@ export async function getFlowsByAssetClass(
     if (accounts.length) q = q.in("account_node_id", accounts);
     const excluded = excludedEntities(subClient);
     if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
+    q = applyAssetClassFilter(q, assetClasses);
     const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
 
@@ -517,11 +638,13 @@ export async function getNavSeriesByAssetClass(
   subClient: string = DEFAULT_SUB_CLIENT,
   trusts: string[] = [],
   accounts: string[] = [],
+  assetClasses: string[] = [],
 ): Promise<Record<string, NavPoint[]>> {
-  return timed(`getNavSeriesByAssetClass(${trusts.length}t,${accounts.length}a)`, async () => {
+  return timed(`getNavSeriesByAssetClass(${trusts.length}t,${accounts.length}a,${assetClasses.length}c)`, async () => {
     // Per-(snapshot_date, account, asset_class) rows from the view. We
     // aggregate across accounts in JS, keyed by asset_class, to get one NAV
-    // series per class for the Returns tile's split-by-class dropdown.
+    // series per class for the Performance page's per-class matrix and
+    // the Overview allocation table.
     let q = getSupabaseServer()
       .from("v_nav_monthly_by_asset_class")
       .select("snapshot_date, asset_class, nav_reporting")
@@ -530,6 +653,10 @@ export async function getNavSeriesByAssetClass(
     if (accounts.length) q = q.in("account_node_id", accounts);
     const excluded = excludedEntities(subClient);
     if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
+    // v_nav_monthly_by_asset_class COALESCEs NULL → 'Unclassified', so a
+    // plain .in() is enough — no need for applyAssetClassFilter's IS NULL
+    // branch.
+    if (assetClasses.length) q = q.in("asset_class", assetClasses);
     const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
 
@@ -585,8 +712,9 @@ export async function getIncomeRows(
   trusts: string[] = [],
   accounts: string[] = [],
   fromDate: string = "2020-01-01",
+  assetClasses: string[] = [],
 ): Promise<IncomeRow[]> {
-  return timed(`getIncomeRows(${trusts.length}t,${accounts.length}a)`, async () => {
+  return timed(`getIncomeRows(${trusts.length}t,${accounts.length}a,${assetClasses.length}c)`, async () => {
     let q = getSupabaseServer()
       .from("v_income_monthly")
       .select(
@@ -601,6 +729,7 @@ export async function getIncomeRows(
     if (accounts.length) q = q.in("account_node_id", accounts);
     const excluded = excludedEntities(subClient);
     if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
+    q = applyAssetClassFilter(q, assetClasses);
     const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
     const rows = (data ?? []) as unknown as Array<
@@ -642,8 +771,9 @@ export async function getTransactions(
   accounts: string[] = [],
   fromDate: string = "2020-01-01",
   toDate: string | null = null,
+  assetClasses: string[] = [],
 ): Promise<Transaction[]> {
-  return timed(`getTransactions(${trusts.length}t,${accounts.length}a)`, async () => {
+  return timed(`getTransactions(${trusts.length}t,${accounts.length}a,${assetClasses.length}c)`, async () => {
     let q = getSupabaseServer()
       .from("v_transactions")
       .select(
@@ -661,6 +791,7 @@ export async function getTransactions(
     if (accounts.length) q = q.in("account_node_id", accounts);
     const excluded = excludedEntities(subClient);
     if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
+    q = applyAssetClassFilter(q, assetClasses);
     const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
     return (data ?? []) as unknown as Transaction[];
@@ -746,6 +877,36 @@ export async function getNavAtOrBefore(
     if (!Number.isFinite(n)) return null;
     return { nav: n, anchorDate: row.anchor_date };
   });
+}
+
+/**
+ * Multi-class variant of getNavAtOrBefore. The RPC accepts a single asset
+ * class at a time, so when the global filter has N classes selected we
+ * fan out N calls in parallel and sum their navs. The shared anchor_date
+ * comes from any one of the results (they all resolve to the same latest
+ * position_snapshot <= targetDate).
+ *
+ * Empty assetClasses → identical to getNavAtOrBefore(..., undefined).
+ */
+export async function getNavAtOrBeforeForClasses(
+  subClient: string,
+  trusts: string[],
+  accounts: string[],
+  targetDate: string,
+  assetClasses: string[],
+): Promise<NavAnchor | null> {
+  if (assetClasses.length === 0) {
+    return getNavAtOrBefore(subClient, trusts, accounts, targetDate);
+  }
+  const results = await Promise.all(
+    assetClasses.map(ac =>
+      getNavAtOrBefore(subClient, trusts, accounts, targetDate, ac),
+    ),
+  );
+  const present = results.filter((r): r is NavAnchor => r != null);
+  if (present.length === 0) return null;
+  const nav = present.reduce((s, r) => s + r.nav, 0);
+  return { nav, anchorDate: present[0].anchorDate };
 }
 
 export async function getIndexPrices(

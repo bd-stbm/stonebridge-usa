@@ -6,6 +6,7 @@ import { cookies } from "next/headers";
 
 export const TRUST_COOKIE = "trust_filter";
 export const ACCOUNT_COOKIE = "account_filter";
+export const ASSET_CLASS_COOKIE = "asset_class_filter";
 export const BENCHMARK_COOKIE = "benchmark";
 export const SUB_CLIENT_COOKIE = "sub_client";
 
@@ -35,6 +36,10 @@ export function getSelectedTrusts(): string[] {
 
 export function getSelectedAccounts(): string[] {
   return parseList(cookies().get(ACCOUNT_COOKIE)?.value);
+}
+
+export function getSelectedAssetClasses(): string[] {
+  return parseList(cookies().get(ASSET_CLASS_COOKIE)?.value);
 }
 
 export function getSelectedBenchmark(): string {

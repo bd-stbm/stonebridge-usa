@@ -11,9 +11,6 @@ interface Props {
   // benchmark row + optional "vs" tone tweaks. Optional.
   indexReturns?: Record<PeriodKey, number | null>;
   benchmarkLabel?: string;
-  // When true, the matrix labels its returns as "price-only" since the
-  // dimension being broken out (asset class) carries no flow-typed flows.
-  priceOnly?: boolean;
 }
 
 function cellTone(v: number | null | undefined): string {
@@ -29,7 +26,6 @@ export default function PerformanceMatrix({
   navAtToday,
   indexReturns,
   benchmarkLabel,
-  priceOnly = false,
 }: Props) {
   const rowKeys = Object.keys(returns).sort(
     (a, b) => (navAtToday[b] ?? 0) - (navAtToday[a] ?? 0),
@@ -39,9 +35,6 @@ export default function PerformanceMatrix({
     <section>
       <div className="mb-3 flex items-baseline justify-between">
         <h2 className="text-base font-semibold text-slate-900">{title}</h2>
-        {priceOnly ? (
-          <span className="text-xs text-slate-500">price-only</span>
-        ) : null}
       </div>
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
         <table className="min-w-full text-sm">

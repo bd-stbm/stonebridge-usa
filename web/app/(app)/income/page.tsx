@@ -14,6 +14,7 @@ import {
 } from "@/lib/queries";
 import {
   getSelectedAccounts,
+  getSelectedAssetClasses,
   getSelectedSubClient,
   getSelectedTrusts,
 } from "@/lib/trust-filter";
@@ -38,6 +39,7 @@ export default async function IncomePage() {
   const subClient = getSelectedSubClient();
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
+  const assetClasses = getSelectedAssetClasses();
 
   const today = new Date();
   // We need at least 13 months of history so TTM works regardless of where
@@ -48,8 +50,8 @@ export default async function IncomePage() {
   );
 
   const [positions, incomeRows] = await Promise.all([
-    getLatestPositions(subClient, trusts, accounts),
-    getIncomeRows(subClient, trusts, accounts, fromDate),
+    getLatestPositions(subClient, trusts, accounts, assetClasses),
+    getIncomeRows(subClient, trusts, accounts, fromDate, assetClasses),
   ]);
   const kpis = computeKpis(positions);
 

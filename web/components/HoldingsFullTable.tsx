@@ -94,7 +94,6 @@ interface Props {
 
 export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
   const [search, setSearch] = useState("");
-  const [assetClass, setAssetClass] = useState("");
   const [custodian, setCustodian] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("mv_reporting");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -104,10 +103,6 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
     [positions],
   );
 
-  const assetClassOptions = useMemo(
-    () => uniqueValues(positions, "asset_class"),
-    [positions],
-  );
   const custodianOptions = useMemo(
     () => uniqueValues(positions, "custodian"),
     [positions],
@@ -116,7 +111,6 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return positions.filter(p => {
-      if (assetClass && p.asset_class !== assetClass) return false;
       if (custodian && p.custodian !== custodian) return false;
       if (!q) return true;
       const hay = [p.asset_name, p.ticker_masttro, p.isin]
@@ -125,7 +119,7 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [positions, search, assetClass, custodian]);
+  }, [positions, search, custodian]);
 
   const sorted = useMemo(() => {
     const arr = filtered.slice();
@@ -172,11 +166,10 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
 
   const resetFilters = () => {
     setSearch("");
-    setAssetClass("");
     setCustodian("");
   };
 
-  const hasActiveFilter = search || assetClass || custodian;
+  const hasActiveFilter = search || custodian;
 
   const handleExportCsv = () => {
     const header = [
@@ -227,7 +220,7 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
     <div className="space-y-4">
       <div className="rounded-lg border border-slate-200 bg-white p-4">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-          <div className="md:col-span-6">
+          <div className="md:col-span-9">
             <label className="block text-xs font-medium text-slate-500">
               Search
             </label>
@@ -238,19 +231,6 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
               placeholder="Asset, ticker, ISIN…"
               className="mt-1 block w-full rounded border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
             />
-          </div>
-          <div className="md:col-span-3">
-            <label className="block text-xs font-medium text-slate-500">Asset class</label>
-            <select
-              value={assetClass}
-              onChange={e => setAssetClass(e.target.value)}
-              className="mt-1 block w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
-            >
-              <option value="">All ({assetClassOptions.length})</option>
-              {assetClassOptions.map(a => (
-                <option key={a} value={a}>{a}</option>
-              ))}
-            </select>
           </div>
           <div className="md:col-span-3">
             <label className="block text-xs font-medium text-slate-500">Custodian</label>

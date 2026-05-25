@@ -3,17 +3,20 @@ import Link from "next/link";
 import { getSupabaseServer } from "@/lib/supabase-server";
 import {
   listAccounts,
+  listAssetClasses,
   listSubClients,
   listTrusts,
 } from "@/lib/queries";
 import {
   getSelectedAccounts,
+  getSelectedAssetClasses,
   getSelectedSubClient,
   getSelectedTrusts,
 } from "@/lib/trust-filter";
 import { isAdminEmail } from "@/lib/admin";
 import TrustFilter from "@/components/TrustFilter";
 import AccountFilter from "@/components/AccountFilter";
+import AssetClassFilter from "@/components/AssetClassFilter";
 import SubClientSelector from "@/components/SubClientSelector";
 import UserMenu from "@/components/UserMenu";
 
@@ -34,6 +37,7 @@ function summarise(label: string, items: string[]): string | null {
 export default async function Header() {
   const currentTrusts = getSelectedTrusts();
   const currentAccounts = getSelectedAccounts();
+  const currentAssetClasses = getSelectedAssetClasses();
   const scope = getSelectedSubClient();
 
   // Auth first — we need the email to decide whether to fetch the sub-client
@@ -44,9 +48,10 @@ export default async function Header() {
   } = await getSupabaseServer().auth.getUser();
   const showSubClientSelector = isAdminEmail(user?.email);
 
-  const [trusts, accounts, subClients] = await Promise.all([
+  const [trusts, accounts, assetClasses, subClients] = await Promise.all([
     listTrusts(scope),
     listAccounts(scope, currentTrusts),
+    listAssetClasses(scope),
     showSubClientSelector ? listSubClients() : Promise.resolve<string[]>([]),
   ]);
 
@@ -108,6 +113,10 @@ export default async function Header() {
           ) : null}
           <TrustFilter trusts={trusts} currentTrusts={currentTrusts} />
           <AccountFilter accounts={accounts} currentAccounts={currentAccounts} />
+          <AssetClassFilter
+            classes={assetClasses}
+            currentClasses={currentAssetClasses}
+          />
         </div>
       </div>
     </header>

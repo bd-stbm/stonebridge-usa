@@ -1,6 +1,7 @@
 import PerformanceMatrix from "@/components/PerformanceMatrix";
 import RebasedChart, { type RebasedPoint } from "@/components/RebasedChart";
 import {
+  getFlowsByAssetClass,
   getFlowsByTrust,
   getIndexPrices,
   getLatestPositions,
@@ -13,6 +14,7 @@ import {
 } from "@/lib/queries";
 import {
   getSelectedAccounts,
+  getSelectedAssetClasses,
   getSelectedBenchmark,
   getSelectedSubClient,
   getSelectedTrusts,
@@ -52,6 +54,7 @@ export default async function PerformancePage() {
   const subClient = getSelectedSubClient();
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
+  const assetClasses = getSelectedAssetClasses();
   const benchmarkTicker = getSelectedBenchmark();
 
   const [
@@ -62,14 +65,14 @@ export default async function PerformancePage() {
     indices,
     returns,
   ] = await Promise.all([
-    getLatestPositions(subClient, trusts, accounts),
-    getNavSeries(subClient, trusts, accounts),
-    getNavSeriesByTrust(subClient, trusts, accounts),
-    getNavSeriesByAssetClass(subClient, trusts, accounts),
+    getLatestPositions(subClient, trusts, accounts, assetClasses),
+    getNavSeries(subClient, trusts, accounts, assetClasses),
+    getNavSeriesByTrust(subClient, trusts, accounts, assetClasses),
+    getNavSeriesByAssetClass(subClient, trusts, accounts, assetClasses),
     listIndices(),
     // Total scope returns — reused as the "Total" row anchor + comparison
     // baseline. Page-level overrides applied below.
-    getPeriodReturns(subClient, trusts, accounts, {}),
+    getPeriodReturns(subClient, trusts, accounts, assetClasses, {}),
   ]);
 
   const benchmarkFromDate =
@@ -81,13 +84,14 @@ export default async function PerformancePage() {
   const benchmark =
     indices.find(i => i.ticker === benchmarkTicker) ?? indices[0] ?? null;
 
-  // Flows per trust — for trust-level Modified Dietz.
-  const flowsByTrust = await getFlowsByTrust(
-    subClient,
-    trusts,
-    accounts,
-    benchmarkFromDate,
-  );
+  // Flows for trust-level Modified Dietz. When asset_class filter is set,
+  // getFlowsByTrust switches to per-class flow rule internally (Buy + Sell +
+  // dividends + interest, sign-flipped) so each trust's return reflects just
+  // the selected classes' performance.
+  const [flowsByTrust, flowsByClass] = await Promise.all([
+    getFlowsByTrust(subClient, trusts, accounts, benchmarkFromDate, assetClasses),
+    getFlowsByAssetClass(subClient, trusts, accounts, benchmarkFromDate, assetClasses),
+  ]);
 
   // --- Trust matrix ---------------------------------------------------------
   const positionsByTrust = groupBy(positions, p => p.trust_alias);
@@ -106,6 +110,9 @@ export default async function PerformancePage() {
   }
 
   // --- Asset-class matrix --------------------------------------------------
+  // Flow rule matches Masttro's per-asset-class transferInOut (Buy + Sell +
+  // dividends + interest, sign-flipped so positive = inflow to the class).
+  // See queries.ts::getFlowsByAssetClass.
   const positionsByClass = groupBy(positions, p => p.asset_class ?? "Unclassified");
   const classReturns: Record<string, Record<PeriodKey, PeriodReturn>> = {};
   const classNav: Record<string, number> = {};
@@ -115,7 +122,7 @@ export default async function PerformancePage() {
     const endNavYesterday = sumPosition(cp, "mv_reporting_yesterday");
     classReturns[className] = computeAllPeriodReturns(
       navs.map(n => ({ date: n.snapshot_date, nav: n.nav })),
-      [], // asset-class scope: price-only (flows aren't class-typed)
+      flowsByClass[className] ?? [],
       { endNav, endNavYesterday },
     );
     classNav[className] = endNav;
@@ -214,7 +221,6 @@ export default async function PerformancePage() {
         navAtToday={classNav}
         indexReturns={indexReturns}
         benchmarkLabel={benchmark?.ticker}
-        priceOnly
       />
     </main>
   );

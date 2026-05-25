@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import { PERIODS, type PeriodKey, type PeriodReturn } from "@/lib/returns";
@@ -8,16 +8,11 @@ import type { IndexOption } from "@/lib/queries";
 import { setBenchmark } from "@/lib/actions";
 import { money, pct } from "@/lib/format";
 
-const TOTAL = "__total__";
-
 interface Props {
   returns: Record<PeriodKey, PeriodReturn>;
   indexReturns?: Record<PeriodKey, number | null>;
   benchmark?: IndexOption | null;
   availableBenchmarks?: IndexOption[];
-  // returnsByAssetClass: { Equity: {...}, "Fixed Income": {...}, ... }
-  returnsByAssetClass?: Record<string, Record<PeriodKey, PeriodReturn>>;
-  indexReturnsByAssetClass?: Record<string, Record<PeriodKey, number | null>>;
   defaultPeriod?: PeriodKey;
   reportingCcy?: string;
 }
@@ -38,33 +33,15 @@ export default function ReturnsTile({
   indexReturns,
   benchmark = null,
   availableBenchmarks = [],
-  returnsByAssetClass = {},
-  indexReturnsByAssetClass = {},
   defaultPeriod = "ytd",
   reportingCcy = "USD",
 }: Props) {
   const [selected, setSelected] = useState<PeriodKey>(defaultPeriod);
-  const [assetClass, setAssetClass] = useState<string>(TOTAL);
   const [pending, startTransition] = useTransition();
   const router = useRouter();
 
-  // Asset-class options are sorted alphabetically, with "Total" pinned first.
-  const assetClassOptions = useMemo(
-    () => Object.keys(returnsByAssetClass).sort((a, b) => a.localeCompare(b)),
-    [returnsByAssetClass],
-  );
-
-  const isClassView = assetClass !== TOTAL;
-  const activeReturns: Record<PeriodKey, PeriodReturn> = isClassView
-    ? (returnsByAssetClass[assetClass] ?? returns)
-    : returns;
-  const activeIndexReturns: Record<PeriodKey, number | null> | undefined =
-    isClassView
-      ? indexReturnsByAssetClass[assetClass]
-      : indexReturns;
-
-  const r = activeReturns[selected];
-  const ir = activeIndexReturns?.[selected] ?? null;
+  const r = returns[selected];
+  const ir = indexReturns?.[selected] ?? null;
 
   const tone =
     r.return_pct == null
@@ -103,20 +80,6 @@ export default function ReturnsTile({
               </button>
             ))}
           </div>
-          {assetClassOptions.length > 0 ? (
-            <select
-              value={assetClass}
-              onChange={e => setAssetClass(e.target.value)}
-              className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700"
-            >
-              <option value={TOTAL}>Total</option>
-              {assetClassOptions.map(ac => (
-                <option key={ac} value={ac}>
-                  {ac}
-                </option>
-              ))}
-            </select>
-          ) : null}
           {showBenchmark ? (
             <select
               value={benchmark!.ticker}
@@ -166,7 +129,6 @@ export default function ReturnsTile({
         {r.start_date && r.end_date
           ? `${formatDate(r.start_date)} → ${formatDate(r.end_date)}`
           : "Insufficient history"}
-        {isClassView ? <> · {assetClass}</> : null}
       </div>
       {showBenchmark ? (
         <div className="mt-2 border-t border-slate-100 pt-2 text-xs text-slate-500">

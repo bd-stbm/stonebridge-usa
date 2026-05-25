@@ -3,6 +3,7 @@
 import { cookies } from "next/headers";
 import {
   ACCOUNT_COOKIE,
+  ASSET_CLASS_COOKIE,
   BENCHMARK_COOKIE,
   SUB_CLIENT_COOKIE,
   TRUST_COOKIE,
@@ -33,6 +34,10 @@ export async function setTrustFilter(trusts: string[]): Promise<void> {
 
 export async function setAccountFilter(accounts: string[]): Promise<void> {
   setOrClearList(ACCOUNT_COOKIE, accounts);
+}
+
+export async function setAssetClassFilter(classes: string[]): Promise<void> {
+  setOrClearList(ASSET_CLASS_COOKIE, classes);
 }
 
 export async function setSubClient(subClient: string): Promise<void> {

@@ -3,6 +3,7 @@ import TransactionsTable from "@/components/TransactionsTable";
 import { getTransactions } from "@/lib/queries";
 import {
   getSelectedAccounts,
+  getSelectedAssetClasses,
   getSelectedSubClient,
   getSelectedTrusts,
 } from "@/lib/trust-filter";
@@ -37,6 +38,7 @@ export default async function TransactionsPage({
   const subClient = getSelectedSubClient();
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
+  const assetClasses = getSelectedAssetClasses();
 
   const from = isValidIso(searchParams.from) ? searchParams.from : defaultFrom();
   const to = isValidIso(searchParams.to) ? searchParams.to : defaultTo();
@@ -47,6 +49,7 @@ export default async function TransactionsPage({
     accounts,
     from,
     to,
+    assetClasses,
   );
 
   const reportingCcy = transactions[0]?.reporting_ccy ?? "USD";

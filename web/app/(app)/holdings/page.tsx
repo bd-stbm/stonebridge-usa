@@ -6,6 +6,7 @@ import {
 } from "@/lib/queries";
 import {
   getSelectedAccounts,
+  getSelectedAssetClasses,
   getSelectedSubClient,
   getSelectedTrusts,
 } from "@/lib/trust-filter";
@@ -17,9 +18,10 @@ export default async function HoldingsPage() {
   const subClient = getSelectedSubClient();
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
-  const positions = await getLatestPositions(subClient, trusts, accounts);
+  const assetClasses = getSelectedAssetClasses();
+  const positions = await getLatestPositions(subClient, trusts, accounts, assetClasses);
   const kpis = computeKpis(positions);
-  const assetClasses = new Set(
+  const visibleAssetClasses = new Set(
     positions
       .map(p => p.asset_class)
       .filter((c): c is string => !!c && c.length > 0),
@@ -44,7 +46,7 @@ export default async function HoldingsPage() {
         <KpiTile label="Positions" value={kpis.positions.toString()} />
         <KpiTile
           label="Asset classes"
-          value={assetClasses.size.toString()}
+          value={visibleAssetClasses.size.toString()}
           hint={`${kpis.trusts} entities`}
         />
       </div>
