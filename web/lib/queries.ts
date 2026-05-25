@@ -908,6 +908,67 @@ export async function getNavAtOrBefore(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Per-(month × security) attribution for the Performance page drill-in.
+// ---------------------------------------------------------------------------
+
+export interface MonthlyAttributionRow {
+  month: string;            // ISO yyyy-mm-dd (first of month)
+  security_id: number;
+  asset_name: string | null;
+  ticker_masttro: string | null;
+  asset_class: string;
+  start_mv: number;
+  end_mv: number;
+  flows: number;            // +ve = net cash flowed INTO the security
+  income: number;           // divs + interest received
+  gain: number;             // (end - start) - flows + income (total return)
+}
+
+export async function getMonthlySecurityAttribution(
+  subClient: string = DEFAULT_SUB_CLIENT,
+  trusts: string[] = [],
+  accounts: string[] = [],
+  assetClasses: string[] = [],
+  fromMonth: string = "2020-01-01",
+): Promise<MonthlyAttributionRow[]> {
+  return timed(
+    `getMonthlySecurityAttribution(${trusts.length}t,${accounts.length}a,${assetClasses.length}c)`,
+    async () => {
+      const excluded = excludedEntities(subClient);
+      const { data, error } = await getSupabaseServer().rpc(
+        "monthly_security_attribution",
+        {
+          p_sub_client:      subClient,
+          p_trusts:          trusts.length ? trusts : null,
+          p_accounts:        accounts.length ? accounts : null,
+          p_asset_classes:   assetClasses.length ? assetClasses : null,
+          p_from_month:      fromMonth,
+          p_excluded_trusts: excluded.length ? excluded : null,
+        },
+      );
+      if (error) throw error;
+      const rows = (data ?? []) as unknown as Array<
+        Omit<MonthlyAttributionRow, "start_mv" | "end_mv" | "flows" | "income" | "gain"> & {
+          start_mv: number | string | null;
+          end_mv: number | string | null;
+          flows: number | string | null;
+          income: number | string | null;
+          gain: number | string | null;
+        }
+      >;
+      return rows.map(r => ({
+        ...r,
+        start_mv: Number(r.start_mv ?? 0),
+        end_mv: Number(r.end_mv ?? 0),
+        flows: Number(r.flows ?? 0),
+        income: Number(r.income ?? 0),
+        gain: Number(r.gain ?? 0),
+      }));
+    },
+  );
+}
+
 export async function getIndexPrices(
   ticker: string,
   fromDate: string,

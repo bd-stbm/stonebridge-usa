@@ -1,15 +1,18 @@
 import PerformanceMatrix from "@/components/PerformanceMatrix";
-import RebasedChart, { type RebasedPoint } from "@/components/RebasedChart";
+import MonthlyAttributionSection from "@/components/MonthlyAttributionSection";
+import type { MonthlyReturnRow } from "@/components/MonthlyReturnsBar";
 import {
   getFlowsByAssetClass,
   getFlowsByTrust,
   getIndexPrices,
   getLatestPositions,
+  getMonthlySecurityAttribution,
   getNavSeries,
   getNavSeriesByAssetClass,
   getNavSeriesByTrust,
   getPeriodReturns,
   listIndices,
+  type MonthlyAttributionRow,
   type Position,
 } from "@/lib/queries";
 import {
@@ -27,6 +30,8 @@ import {
 } from "@/lib/returns";
 
 export const dynamic = "force-dynamic";
+
+const ATTRIBUTION_MONTHS = 24;
 
 function groupBy<T, K extends string>(
   items: T[],
@@ -50,12 +55,31 @@ function sumPosition(positions: Position[], field: "mv_reporting" | "mv_reportin
   }, 0);
 }
 
+const MONTH_LABELS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+function monthIsoToLabel(monthIso: string): string {
+  // monthIso is yyyy-mm-dd (first of month). Build "Mon yyyy".
+  const [y, m] = monthIso.split("-");
+  const monthIdx = Number(m) - 1;
+  return `${MONTH_LABELS[monthIdx] ?? m} ${y}`;
+}
+
 export default async function PerformancePage() {
   const subClient = getSelectedSubClient();
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
   const assetClasses = getSelectedAssetClasses();
   const benchmarkTicker = getSelectedBenchmark();
+
+  // Attribution window: last N completed months + current month.
+  const today = new Date();
+  const fromMonthDate = new Date(
+    Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - ATTRIBUTION_MONTHS, 1),
+  );
+  const fromMonth = fromMonthDate.toISOString().slice(0, 10);
 
   const [
     positions,
@@ -64,15 +88,15 @@ export default async function PerformancePage() {
     navByClass,
     indices,
     returns,
+    attribution,
   ] = await Promise.all([
     getLatestPositions(subClient, trusts, accounts, assetClasses),
     getNavSeries(subClient, trusts, accounts, assetClasses),
     getNavSeriesByTrust(subClient, trusts, accounts, assetClasses),
     getNavSeriesByAssetClass(subClient, trusts, accounts, assetClasses),
     listIndices(),
-    // Total scope returns — reused as the "Total" row anchor + comparison
-    // baseline. Page-level overrides applied below.
     getPeriodReturns(subClient, trusts, accounts, assetClasses, {}),
+    getMonthlySecurityAttribution(subClient, trusts, accounts, assetClasses, fromMonth),
   ]);
 
   const benchmarkFromDate =
@@ -84,16 +108,74 @@ export default async function PerformancePage() {
   const benchmark =
     indices.find(i => i.ticker === benchmarkTicker) ?? indices[0] ?? null;
 
-  // Flows for trust-level Modified Dietz. When asset_class filter is set,
-  // getFlowsByTrust switches to per-class flow rule internally (Buy + Sell +
-  // dividends + interest, sign-flipped) so each trust's return reflects just
-  // the selected classes' performance.
+  // Flows for the trust matrix + per-month portfolio totals. Same rule as
+  // getPeriodReturns: external flows when no asset_class filter; per-class
+  // flows when filter is active (since external deposits aren't class-typed).
   const [flowsByTrust, flowsByClass] = await Promise.all([
     getFlowsByTrust(subClient, trusts, accounts, benchmarkFromDate, assetClasses),
     getFlowsByAssetClass(subClient, trusts, accounts, benchmarkFromDate, assetClasses),
   ]);
 
-  // --- Trust matrix ---------------------------------------------------------
+  // --- Monthly portfolio returns (drives the new bar chart) ----------------
+  // Bucket nav series by calendar month, take the latest snapshot per month
+  // as that month's end NAV. Bucket flows by month too. Then per month-pair
+  // (M-1, M): return = (end - start - flows) / (start + 0.5*flows).
+  const navByMonth = (() => {
+    const map = new Map<string, { date: string; nav: number }>();
+    for (const point of navSeries) {
+      const monthKey = `${point.snapshot_date.slice(0, 7)}-01`;
+      const cur = map.get(monthKey);
+      if (!cur || point.snapshot_date > cur.date) {
+        map.set(monthKey, { date: point.snapshot_date, nav: point.nav });
+      }
+    }
+    return map;
+  })();
+
+  const flowsByMonth = (() => {
+    const map = new Map<string, number>();
+    const flowSets = assetClasses.length
+      ? Object.values(flowsByClass).filter((arr): arr is NonNullable<typeof arr> => arr != null)
+      : Object.values(flowsByTrust).filter((arr): arr is NonNullable<typeof arr> => arr != null);
+    for (const arr of flowSets) {
+      for (const f of arr) {
+        const monthKey = `${f.date.slice(0, 7)}-01`;
+        map.set(monthKey, (map.get(monthKey) ?? 0) + f.amount);
+      }
+    }
+    return map;
+  })();
+
+  const sortedMonths = Array.from(navByMonth.keys()).sort();
+  const monthlyReturns: MonthlyReturnRow[] = [];
+  for (let i = 1; i < sortedMonths.length; i++) {
+    const month = sortedMonths[i];
+    if (month < fromMonth) continue;
+    const start_nav = navByMonth.get(sortedMonths[i - 1])?.nav ?? 0;
+    const end_nav = navByMonth.get(month)?.nav ?? 0;
+    const flows = flowsByMonth.get(month) ?? 0;
+    const gain = end_nav - start_nav - flows;
+    const denom = start_nav + 0.5 * flows;
+    const return_pct = denom > 0 ? gain / denom : null;
+    monthlyReturns.push({
+      month,
+      label: monthIsoToLabel(month),
+      return_pct,
+      gain,
+      start_nav,
+      end_nav,
+      flows,
+    });
+  }
+
+  // Group attribution rows by month for instant client-side drill-in.
+  const attributionByMonth: Record<string, MonthlyAttributionRow[]> = {};
+  for (const r of attribution) {
+    if (!attributionByMonth[r.month]) attributionByMonth[r.month] = [];
+    attributionByMonth[r.month].push(r);
+  }
+
+  // --- Trust matrix --------------------------------------------------------
   const positionsByTrust = groupBy(positions, p => p.trust_alias);
   const trustReturns: Record<string, Record<PeriodKey, PeriodReturn>> = {};
   const trustNav: Record<string, number> = {};
@@ -110,9 +192,6 @@ export default async function PerformancePage() {
   }
 
   // --- Asset-class matrix --------------------------------------------------
-  // Flow rule matches Masttro's per-asset-class transferInOut (Buy + Sell +
-  // dividends + interest, sign-flipped so positive = inflow to the class).
-  // See queries.ts::getFlowsByAssetClass.
   const positionsByClass = groupBy(positions, p => p.asset_class ?? "Unclassified");
   const classReturns: Record<string, Record<PeriodKey, PeriodReturn>> = {};
   const classNav: Record<string, number> = {};
@@ -128,55 +207,10 @@ export default async function PerformancePage() {
     classNav[className] = endNav;
   }
 
-  // --- Rebased chart -------------------------------------------------------
-  // Bump portfolio's last point to the refreshed NAV so the line ends where
-  // the Returns tile / NAV tile do. Compute index value at each snapshot
-  // date by walking forwards to find the nearest price on/before.
-  const endNavRefreshed = sumPosition(positions, "mv_reporting");
-  const portfolioPoints = navSeries.length
-    ? (() => {
-        const today = new Date().toISOString().slice(0, 10);
-        const last = navSeries[navSeries.length - 1];
-        if (last.snapshot_date < today) {
-          return [
-            ...navSeries,
-            { snapshot_date: today, nav: endNavRefreshed },
-          ];
-        }
-        return [
-          ...navSeries.slice(0, -1),
-          { snapshot_date: last.snapshot_date, nav: endNavRefreshed },
-        ];
-      })()
-    : [];
-  const portfolioStart = portfolioPoints[0]?.nav ?? 0;
-  let benchmarkStart: number | null = null;
-  if (portfolioPoints.length && indexPrices.length) {
-    for (const p of indexPrices) {
-      if (p.date <= portfolioPoints[0].snapshot_date) benchmarkStart = p.price;
-      else break;
-    }
-    if (benchmarkStart == null) benchmarkStart = indexPrices[0].price;
-  }
-  const rebasedData: RebasedPoint[] = portfolioPoints.map(pt => {
-    let benchPx: number | null = null;
-    for (const ip of indexPrices) {
-      if (ip.date <= pt.snapshot_date) benchPx = ip.price;
-      else break;
-    }
-    return {
-      date: pt.snapshot_date,
-      portfolio: portfolioStart > 0 ? (pt.nav / portfolioStart) * 100 : null,
-      benchmark:
-        benchPx != null && benchmarkStart && benchmarkStart > 0
-          ? (benchPx / benchmarkStart) * 100
-          : null,
-    };
-  });
-
-  // --- Index returns over the same dates the Total scope uses --------------
-  // (Just for the benchmark row of each matrix.)
+  // Index returns for the matrices' benchmark row.
   const indexReturns = computeIndexReturnsForAllPeriods(indexPrices, returns);
+
+  const reportingCcy = positions[0]?.reporting_ccy ?? "USD";
 
   const scopeNote =
     [
@@ -186,6 +220,9 @@ export default async function PerformancePage() {
           ? `${trusts.length} entities`
           : null,
       accounts.length > 0 ? `${accounts.length} account${accounts.length > 1 ? "s" : ""} scoped` : null,
+      assetClasses.length > 0
+        ? `${assetClasses.length === 1 ? assetClasses[0] : `${assetClasses.length} asset classes`}`
+        : null,
     ]
       .filter(Boolean)
       .join(" · ") || "All entities under " + subClient;
@@ -200,9 +237,10 @@ export default async function PerformancePage() {
         </span>
       </div>
 
-      <RebasedChart
-        data={rebasedData}
-        benchmarkLabel={benchmark?.ticker ?? "Benchmark"}
+      <MonthlyAttributionSection
+        monthlyReturns={monthlyReturns}
+        attributionByMonth={attributionByMonth}
+        reportingCcy={reportingCcy}
       />
 
       <PerformanceMatrix
