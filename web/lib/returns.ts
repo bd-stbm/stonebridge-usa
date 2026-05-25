@@ -50,11 +50,22 @@ function shiftDate(end: Date, period: PeriodKey): Date {
       // Dec 31 of the previous year.
       return new Date(Date.UTC(end.getUTCFullYear() - 1, 11, 31));
     case "6m":
-      d.setUTCMonth(d.getUTCMonth() - 6);
-      return d;
+      // Last day of the calendar month 6 months prior. Masttro's "6M" view
+      // is calendar-month aligned: querying period=3 with yearMonth=YYYYMM
+      // covers month-(YYYYMM-5) through month-YYYYMM, so the start anchor
+      // is end of month (YYYYMM-6). nearestOnOrBefore / nav_at_or_before
+      // then resolve that to the actual month-end snapshot we hold.
+      // Date.UTC(y, m+1, 0) = day-zero of next month = last day of month m.
+      return new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth() - 6 + 1, 0));
     case "1y":
-      d.setUTCFullYear(d.getUTCFullYear() - 1);
-      return d;
+      // Last day of the same calendar month one year prior. Mirrors
+      // Masttro's period=4 (yearMonth=YYYYMM covers the 12 months ending
+      // YYYYMM, anchored to end of month YYYYMM minus 12). Without this,
+      // we'd land mid-month and nav_at_or_before would snap to the
+      // previous month-end — a one-month earlier anchor than Masttro
+      // uses, which produces a meaningfully different start NAV when the
+      // portfolio added positions between those two month-ends.
+      return new Date(Date.UTC(end.getUTCFullYear() - 1, end.getUTCMonth() + 1, 0));
   }
 }
 
