@@ -65,22 +65,116 @@ def upsert_gwm(conn, gwm_payload: list[dict]) -> int:
             """,
             rows,
         )
-        # Recompute canonical-account flag — one per (bank, account#) fingerprint.
-        cur.execute("UPDATE entity SET is_canonical_account = FALSE WHERE is_account = TRUE")
-        cur.execute("""
+    conn.commit()
+    mark_canonical_accounts(conn)
+    log_sync(conn, "gwm", None, f"snapshot={snapshot_iso}", len(rows))
+    return len(rows)
+
+
+def _is_trust(alias: str | None, name: str | None) -> bool:
+    return "trust" in (alias or "").lower() or "trust" in (name or "").lower()
+
+
+def _detect_shared_vehicle_nodes(
+    nodes: dict[str, tuple[str | None, str | None, str | None, str | None]],
+) -> set[str]:
+    """Return the set of node_ids whose group_node_id is "shared across
+    multiple distinct trust ancestors" — i.e. each reflection of the
+    same physical vehicle represents a different trust's slice.
+
+    Covers two flavours uniformly:
+      - Within-family sharing (Modyl LP held by 3 Dyne trusts) — each
+        reflection is one trust's slice of Modyl's holdings.
+      - Cross-family sharing (Dendell LLC held by Dyne + Markiles +
+        Miller) — each family's reflection is its pro-rata slice.
+
+    In both cases the per-reflection positions must all be ingested for
+    totals to be correct. Single-reflection groups and groups whose
+    reflections all share one trust ancestor are NOT included (they're
+    safely deduped via the (bank, account#) fingerprint).
+
+    `nodes` shape: {node_id: (parent_node_id, alias, name, group_node_id)}.
+    """
+    def trust_ancestor_of(start_nid: str) -> str | None:
+        cur_id = nodes[start_nid][0]  # skip self
+        for _ in range(50):
+            if not cur_id or cur_id == "_":
+                return None
+            pid, alias, name, _ = nodes.get(cur_id, (None, None, None, None))
+            if _is_trust(alias, name):
+                return cur_id
+            cur_id = pid
+        return None
+
+    from collections import defaultdict
+    trust_ancestors_by_group: dict[str, set[str]] = defaultdict(set)
+    for nid, (_, _, _, gnid) in nodes.items():
+        if gnid is None:
+            continue
+        ta = trust_ancestor_of(nid)
+        if ta is not None:
+            trust_ancestors_by_group[gnid].add(ta)
+    shared_groups = {g for g, tas in trust_ancestors_by_group.items() if len(tas) > 1}
+    return {nid for nid, (_, _, _, gnid) in nodes.items() if gnid in shared_groups}
+
+
+def mark_canonical_accounts(conn) -> None:
+    """Re-mark is_canonical_account across all accounts.
+
+    Two rules combined:
+      1. Non-shared accounts → one canonical per (bank, account#) fingerprint
+         (the original dedup logic). Handles the typical case where a single
+         physical account appears under multiple ownership reflections that
+         all show identical totals.
+      2. Shared-vehicle accounts (parent's group_node_id is shared across
+         multiple distinct trust ancestors) → ALL reflections canonical.
+         Each reflection here is its own trust's slice; deduping would
+         silently drop the other slices and undercount (Modyl was short by
+         ~18% in Dyne pre-fix). Different node_ids per reflection means no
+         position_snapshot PK conflicts.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT node_id, parent_node_id, alias, name, group_node_id FROM entity"
+        )
+        nodes = {
+            r["node_id"]: (
+                r["parent_node_id"], r["alias"], r["name"], r["group_node_id"],
+            )
+            for r in cur.fetchall()
+        }
+        shared_vehicle_nids = _detect_shared_vehicle_nodes(nodes)
+
+        cur.execute(
+            "UPDATE entity SET is_canonical_account = FALSE WHERE is_account = TRUE"
+        )
+        # Rule 1: fingerprint dedup for non-shared accounts.
+        cur.execute(
+            """
             WITH ranked AS (
                 SELECT node_id,
                        ROW_NUMBER() OVER (
                            PARTITION BY bank_broker, account_number ORDER BY node_id
                        ) AS rn
-                FROM entity WHERE is_account = TRUE
+                FROM entity
+                WHERE is_account = TRUE
+                  AND parent_node_id <> ALL(%s::text[])
             )
             UPDATE entity SET is_canonical_account = TRUE
             WHERE node_id IN (SELECT node_id FROM ranked WHERE rn = 1)
-        """)
+            """,
+            (list(shared_vehicle_nids) or [""],),
+        )
+        # Rule 2: every reflection of a shared vehicle stays canonical.
+        cur.execute(
+            """
+            UPDATE entity SET is_canonical_account = TRUE
+            WHERE is_account = TRUE
+              AND parent_node_id = ANY(%s::text[])
+            """,
+            (list(shared_vehicle_nids) or [""],),
+        )
     conn.commit()
-    log_sync(conn, "gwm", None, f"snapshot={snapshot_iso}", len(rows))
-    return len(rows)
 
 
 def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
@@ -90,21 +184,18 @@ def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
     "entity" — which is the first ancestor (walking leaf-to-root) that
     matches one of:
 
-      - a shared-within-family vehicle (e.g. "Modyl LP" when Modyl is
-        held jointly by multiple trusts inside one family), OR
+      - a shared vehicle whose group_node_id has 2+ distinct trust
+        ancestors (covers both within-family sharing like Modyl LP held
+        by multiple Dyne trusts, AND cross-family sharing like Dendell
+        LLC held by Dyne + Markiles + Miller — each reflection
+        attributes to the vehicle itself), OR
       - a trust (the default for positions held by a single trust), OR
       - a retirement grouping (the "Dyne US Retirement" / "Markiles
-        Retirement" / "Miller Retirement" subtree under a sub-client).
-        Without this, retirement accounts (IRAs / 401Ks held directly
-        under a person node with no trust between them and the sub-
-        client root) would fall through with NULL trust_alias and
-        disappear from the Entity filter — a $6m+ gap for some families.
-
-    A vehicle is "shared within family" when its group_node_id has 2+
-    distinct trust ancestors. Cross-family shared vehicles are filtered
-    out at sync time (canonical_accounts_under), so their attribution
-    doesn't drive any dashboard surface — only in-family sharing surfaces
-    as its own entity in the UI's Entity filter.
+        Retirement" / "Miller Retirement" subtree under a sub-client),
+        OR
+      - the immediate child of the sub-client (the person fallback —
+        unused by default, since adding it would surface 5+ person
+        entities under Miller; not yet enabled).
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -116,9 +207,6 @@ def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
         }
 
     sub_clients = {nid for nid, (pid, _, _, _) in nodes.items() if pid == root_node_id}
-
-    def is_trust(alias, name):
-        return "trust" in (alias or "").lower() or "trust" in (name or "").lower()
 
     def is_retirement_grouping(alias, name):
         # Matches the sub-client-level grouping nodes (e.g. "Dyne US
@@ -132,36 +220,7 @@ def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
             or "retirement" in (name or "").lower()
         )
 
-    # Compute trust-ancestor of each node once — needed for the shared-
-    # vehicle detection step. We're not walking up to find sub_client here
-    # because the cheaper unique-trust-ancestor count is all we need.
-    def trust_ancestor_of(start_nid: str) -> str | None:
-        cur_id = nodes[start_nid][0]  # skip self — a node isn't its own ancestor
-        for _ in range(50):
-            if not cur_id or cur_id == "_":
-                return None
-            pid, alias, name, _ = nodes.get(cur_id, (None, None, None, None))
-            if is_trust(alias, name):
-                return cur_id
-            cur_id = pid
-        return None
-
-    # group_node_id -> set of distinct trust ancestors observed across reflections.
-    # If size > 1 the group_node_id is shared across trusts.
-    from collections import defaultdict
-    trust_ancestors_by_group: dict[str, set[str]] = defaultdict(set)
-    for nid, (_, _, _, gnid) in nodes.items():
-        if gnid is None:
-            continue
-        ta = trust_ancestor_of(nid)
-        if ta is not None:
-            trust_ancestors_by_group[gnid].add(ta)
-    shared_groups = {g for g, tas in trust_ancestors_by_group.items() if len(tas) > 1}
-    # Set of node_ids whose own group_node_id is shared — i.e. the shared
-    # vehicles themselves (Modyl LP's three reflections, Mardy LP, etc.).
-    shared_vehicle_nodes = {
-        nid for nid, (_, _, _, gnid) in nodes.items() if gnid in shared_groups
-    }
+    shared_vehicle_nodes = _detect_shared_vehicle_nodes(nodes)
 
     rows = []
     for nid in nodes:
@@ -185,13 +244,13 @@ def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
             # to e.g. "Markiles Retirement" instead of NULL.
             if entity_nid is None and cur_id != nid and (
                 cur_id in shared_vehicle_nodes
-                or is_trust(alias, name)
+                or _is_trust(alias, name)
                 or is_retirement_grouping(alias, name)
             ):
                 entity_nid = cur_id
                 entity_alias = alias or name
             cur_id = pid
-        if entity_nid is None and is_trust(nodes[nid][1], nodes[nid][2]):
+        if entity_nid is None and _is_trust(nodes[nid][1], nodes[nid][2]):
             entity_nid = nid
             entity_alias = nodes[nid][1] or nodes[nid][2]
         rows.append((nid, sub_client_nid, sub_client_alias,
@@ -222,109 +281,34 @@ def canonical_accounts_under(
     scope_node_id: str,
     all_family_roots: list[str] | None = None,
 ) -> list[str]:
-    """Canonical investment-account node_ids inside scope_node_id, with
-    cross-family shared vehicles excluded.
+    """Canonical investment-account node_ids inside scope_node_id.
 
-    A vehicle (LP/LLC/trust) is "shared across families" when its
-    group_node_id appears under more than one family root. Any canonical
-    account whose ancestor chain crosses such a vehicle is dropped to
-    avoid double-counting that vehicle's positions across families.
+    Previously this function ALSO stripped accounts under cross-family
+    shared vehicles (Dendell, Deltrust, etc.) to avoid double-counting.
+    That's no longer needed: mark_canonical_accounts keeps ALL
+    reflections of shared-multi-trust vehicles as canonical, which means
+    each family's daily sync naturally ingests its own per-trust slice
+    of the shared vehicle (different node_ids, no PK conflicts, totals
+    sum correctly).
 
-    Family-internal sharing (e.g. Modyl LP held only inside Dyne (US))
-    keeps its group_node_id but only appears under one family root, so
-    those accounts are kept.
-
-    Passing all_family_roots=None disables the cross-family check (a
-    legacy single-tenant fallback). Production callers always pass the
-    full list from tracker/families.py.
+    `all_family_roots` is now accepted but ignored — kept on the
+    signature so existing callers don't break.
     """
-    if all_family_roots:
-        # Guard: if group_node_id hasn't been populated yet (migration
-        # 016 applied but weekly GWM sync not run), the cross-family
-        # exclusion is silently inert — we'd return shared vehicles too.
-        # Fail loudly instead so the operator runs the weekly sync first.
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT COUNT(*) AS n FROM entity WHERE group_node_id IS NOT NULL"
-            )
-            if cur.fetchone()["n"] == 0:
-                raise RuntimeError(
-                    "entity.group_node_id is empty. Apply migration 016 and "
-                    "run scripts/sync_masttro_weekly.py to populate it before "
-                    "running this. Otherwise cross-family shared vehicles "
-                    "(Deltrust, Prairie Land, etc.) would slip through."
-                )
-
-    if not all_family_roots:
-        # Single-tenant mode: just every canonical account in the subtree.
-        with conn.cursor() as cur:
-            cur.execute(
-                """WITH RECURSIVE descendants AS (
-                       SELECT node_id FROM entity WHERE node_id = %s
-                     UNION
-                       SELECT e.node_id
-                       FROM entity e JOIN descendants d
-                         ON e.parent_node_id = d.node_id
-                   )
-                   SELECT e.node_id FROM entity e
-                   JOIN descendants d ON e.node_id = d.node_id
-                   WHERE e.is_canonical_account = TRUE
-                """,
-                (scope_node_id,),
-            )
-            return [r["node_id"] for r in cur.fetchall()]
-
+    _ = all_family_roots  # intentionally unused; see docstring
     with conn.cursor() as cur:
         cur.execute(
-            """
-            WITH RECURSIVE
-            -- All descendants of every family root, tagged with which root
-            fam_desc(family_root, node_id) AS (
-                SELECT e.node_id, e.node_id
-                  FROM entity e
-                 WHERE e.node_id = ANY(%s::text[])
-                UNION
-                SELECT fd.family_root, e.node_id
-                  FROM entity e
-                  JOIN fam_desc fd ON e.parent_node_id = fd.node_id
-            ),
-            -- group_node_id values that surface under >1 family
-            multi_family_groups AS (
-                SELECT e.group_node_id
-                  FROM entity e
-                  JOIN fam_desc fd ON e.node_id = fd.node_id
-                 WHERE e.group_node_id IS NOT NULL
-                 GROUP BY e.group_node_id
-                HAVING COUNT(DISTINCT fd.family_root) > 1
-            ),
-            -- Nodes whose group_node_id is shared across families
-            shared_vehicles AS (
-                SELECT node_id FROM entity
-                 WHERE group_node_id IN (SELECT group_node_id FROM multi_family_groups)
-            ),
-            -- shared_vehicles plus everything beneath them
-            shared_subtree AS (
-                SELECT node_id FROM shared_vehicles
-                UNION
-                SELECT e.node_id
-                  FROM entity e
-                  JOIN shared_subtree ss ON e.parent_node_id = ss.node_id
-            ),
-            -- Descendants of the target family root
-            target_desc AS (
-                SELECT node_id FROM entity WHERE node_id = %s
-                UNION
-                SELECT e.node_id
-                  FROM entity e
-                  JOIN target_desc td ON e.parent_node_id = td.node_id
-            )
-            SELECT e.node_id
-              FROM entity e
-              JOIN target_desc td ON e.node_id = td.node_id
-             WHERE e.is_canonical_account = TRUE
-               AND e.node_id NOT IN (SELECT node_id FROM shared_subtree)
+            """WITH RECURSIVE descendants AS (
+                   SELECT node_id FROM entity WHERE node_id = %s
+                 UNION
+                   SELECT e.node_id
+                   FROM entity e JOIN descendants d
+                     ON e.parent_node_id = d.node_id
+               )
+               SELECT e.node_id FROM entity e
+               JOIN descendants d ON e.node_id = d.node_id
+               WHERE e.is_canonical_account = TRUE
             """,
-            (list(all_family_roots), scope_node_id),
+            (scope_node_id,),
         )
         return [r["node_id"] for r in cur.fetchall()]
 
