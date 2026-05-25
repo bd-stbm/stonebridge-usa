@@ -4,6 +4,7 @@ import HoldingsTable from "@/components/HoldingsTable";
 import NavChart from "@/components/NavChart";
 import {
   computeKpis,
+  getFlowsByAssetClass,
   getIndexPrices,
   getLatestPositions,
   getNavSeries,
@@ -46,12 +47,13 @@ export default async function OverviewPage() {
   const target1Y = computePeriodStart("1y", today);
   // Everything in this batch is independent — fire in parallel for one
   // network round-trip instead of three sequential ones.
-  const [positions, navSeries, indices, navByClass, nav6M, nav1Y] =
+  const [positions, navSeries, indices, navByClass, flowsByClass, nav6M, nav1Y] =
     await Promise.all([
       getLatestPositions(subClient, trusts, accounts),
       getNavSeries(subClient, trusts, accounts),
       listIndices(),
       getNavSeriesByAssetClass(subClient, trusts, accounts),
+      getFlowsByAssetClass(subClient, trusts, accounts),
       getNavAtOrBefore(subClient, trusts, accounts, target6M),
       getNavAtOrBefore(subClient, trusts, accounts, target1Y),
     ]);
@@ -99,8 +101,10 @@ export default async function OverviewPage() {
 
   // Per-asset-class returns. Group today's positions by asset_class so the
   // end NAV uses the same refreshed (yfinance) values, then run modified
-  // Dietz with flows = [] since trust-level deposits aren't asset-typed
-  // (so the math is a clean price-only return on the held positions).
+  // Dietz with per-class flows from getFlowsByAssetClass. The flow rule
+  // (Buy + Sell + dividends + interest, sign-flipped so flow is "into the
+  // class") matches Masttro's transferInOut definition at the asset-class
+  // level — see queries.ts for the verification against /Performance.
   const positionsByClass = new Map<string, typeof positions>();
   for (const p of positions) {
     const ac = p.asset_class ?? "Unclassified";
@@ -143,7 +147,7 @@ export default async function OverviewPage() {
     );
     returnsByAssetClass[ac] = computeAllPeriodReturns(
       navs.map(n => ({ date: n.snapshot_date, nav: n.nav })),
-      [],
+      flowsByClass[ac] ?? [],
       {
         endNav: acEndNav,
         endNavYesterday: acEndNavYesterday,

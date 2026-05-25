@@ -166,7 +166,7 @@ export default function ReturnsTile({
         {r.start_date && r.end_date
           ? `${formatDate(r.start_date)} → ${formatDate(r.end_date)}`
           : "Insufficient history"}
-        {isClassView ? <> · {assetClass} · price-only</> : null}
+        {isClassView ? <> · {assetClass}</> : null}
       </div>
       {showBenchmark ? (
         <div className="mt-2 border-t border-slate-100 pt-2 text-xs text-slate-500">

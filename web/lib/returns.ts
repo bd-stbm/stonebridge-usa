@@ -11,7 +11,7 @@ export const PERIODS: { key: PeriodKey; label: string }[] = [
   { key: "mtd", label: "MTD" },
   { key: "ytd", label: "YTD" },
   { key: "6m", label: "6M" },
-  { key: "1y", label: "1Y" },
+  { key: "1y", label: "12M" },
 ];
 
 export interface NavPoint {

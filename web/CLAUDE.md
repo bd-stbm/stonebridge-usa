@@ -54,7 +54,7 @@ tracker/sync_supabase.py  ──UPSERT──▶  Supabase Postgres
 
 | Route | Purpose | Key view / RPC |
 |---|---|---|
-| `/` | NAV + 1D/MTD/YTD/6M/1Y returns with benchmark + asset-class split, NAV-over-time chart, top holdings. | `v_positions_refreshed`, `v_nav_monthly_by_account`, `v_nav_monthly_by_asset_class`, `index_price_history`, `reconstructed_nav_at` (RPC) |
+| `/` | NAV + 1D/MTD/YTD/6M/12M returns with benchmark + asset-class split, NAV-over-time chart, top holdings. | `v_positions_refreshed`, `v_nav_monthly_by_account`, `v_nav_monthly_by_asset_class`, `index_price_history`, `reconstructed_nav_at` (RPC) |
 | `/holdings` | Sortable/filterable table of every current position. Search + asset-class + custodian filters in-page (Trust + Account come from header). | `v_positions_refreshed` |
 | `/performance` | Rebased portfolio-vs-benchmark line chart, returns-by-trust matrix, returns-by-asset-class matrix. | `v_nav_monthly_by_account`, `v_nav_monthly_by_asset_class`, `v_external_flows`, `index_price_history` |
 | `/income` | TTM/YTD income KPIs, monthly bar (Dividends/Interest/Other), top payers, by-trust. | `v_income_monthly` |
@@ -179,7 +179,7 @@ For each period:
 | MTD | Refreshed sum | Last day of previous month from `v_nav_monthly_by_account` | External flows in window |
 | YTD | Refreshed sum | Dec 31 prev year from `v_nav_monthly_by_account` | External flows in window |
 | 6M | Refreshed sum | **`reconstructed_nav_at(today − 6m)` RPC** — falls back to snapshot grid if RPC returns NULL | External flows in window |
-| 1Y | Refreshed sum | **`reconstructed_nav_at(today − 1y)` RPC** — currently clamps to Jun 2025 anchor (earliest Masttro snapshot) | External flows in window |
+| 12M | Refreshed sum | **`reconstructed_nav_at(today − 1y)` RPC** — currently clamps to Jun 2025 anchor (earliest Masttro snapshot) | External flows in window |
 
 When an **asset class** is selected in the Returns tile, flows are zeroed
 (trust-level deposits aren't asset-class-typed) and the result is labelled
@@ -269,9 +269,9 @@ received dividends.
   Planned in the original auth conversation; not built. Currently every
   authenticated user sees the entire dataset.
 - **Migration 012 must be applied manually** (the `reconstructed_nav_at`
-  RPC). Until applied, 6M / 1Y use the snapshot-grid fallback.
-- **Masttro backfill is 12 months** — extends to Jun 2025. To get true 1Y
-  precision (today minus 1Y has a real anchor), run
+  RPC). Until applied, 6M / 12M use the snapshot-grid fallback.
+- **Masttro backfill is 12 months** — extends to Jun 2025. To get true 12M
+  precision (today minus 12M has a real anchor), run
   `scripts/11_us_families_backfill.py` with a longer `historicalMonths`.
 - **Global asset class / custodian filters** are deferred. Today they
   live in-page on `/holdings` only. A previous design conversation laid

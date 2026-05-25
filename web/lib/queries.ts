@@ -447,6 +447,72 @@ export async function getFlowsByTrust(
   });
 }
 
+// Per-asset-class flows for proper Modified-Dietz returns at the class
+// level. Sign convention: returned `amount` is the flow *into* the class
+// (positive = inflow). A Buy moves cash into the class → +amount. A Sell
+// or a Dividend (paid out to cash) moves value out of the class → -amount.
+// Both come from negating the raw `net_amount_reporting`, which is the
+// cash-side amount with the opposite sign.
+//
+// Matches Masttro's per-asset-class `transferInOut` definition to within a
+// few percent — verified against /Performance for Morgan Dyne 12M (Equity
+// API transferInOut = -$418k, our rule sums to -$389k, residual ~$30k is
+// corporate-action cash residuals + fees / taxes we don't yet classify).
+//
+// Transaction types included:
+//   - Buy / Sell     — security purchases & sales (the obvious flows)
+//   - Cash Dividends — equity dividends paid to cash (outflow from equity)
+//   - Interest       — bond / cash-equivalent interest paid to cash
+//   - Income         — generic "Income" rows when neither dividend nor
+//                       interest, e.g. private investment distributions
+export async function getFlowsByAssetClass(
+  subClient: string = DEFAULT_SUB_CLIENT,
+  trusts: string[] = [],
+  accounts: string[] = [],
+  fromDate: string = "2020-01-01",
+): Promise<Record<string, Flow[]>> {
+  return timed(`getFlowsByAssetClass(${trusts.length}t,${accounts.length}a)`, async () => {
+    let q = getSupabaseServer()
+      .from("v_transactions")
+      .select("transaction_date, asset_class, net_amount_reporting")
+      .eq("sub_client_alias", subClient)
+      .gte("transaction_date", fromDate)
+      .in("transaction_type_clean", [
+        "Buy",
+        "Sell",
+        "Cash Dividends",
+        "Interest",
+        "Income",
+      ]);
+    if (trusts.length) q = q.in("trust_alias", trusts);
+    if (accounts.length) q = q.in("account_node_id", accounts);
+    const excluded = excludedEntities(subClient);
+    if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
+    const { data, error } = await q.limit(LIMIT_LARGE);
+    if (error) throw error;
+
+    const rows = (data ?? []) as unknown as Array<{
+      transaction_date: string;
+      asset_class: string | null;
+      net_amount_reporting: number | null;
+    }>;
+
+    const out: Record<string, Flow[]> = {};
+    for (const r of rows) {
+      // Match v_nav_monthly_by_asset_class which COALESCEs NULL → 'Unclassified'.
+      const ac = r.asset_class ?? "Unclassified";
+      if (!out[ac]) out[ac] = [];
+      out[ac].push({
+        date: r.transaction_date,
+        // Negate so flow is "into the class": Buy (cash-side negative) → +,
+        // Sell / Dividend / Interest (cash-side positive) → -.
+        amount: -Number(r.net_amount_reporting ?? 0),
+      });
+    }
+    return out;
+  });
+}
+
 export async function getNavSeriesByAssetClass(
   subClient: string = DEFAULT_SUB_CLIENT,
   trusts: string[] = [],
