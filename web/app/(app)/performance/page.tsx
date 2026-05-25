@@ -31,7 +31,13 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const ATTRIBUTION_MONTHS = 24;
+// Months of attribution data to FETCH from the RPC. Pull one extra so
+// the displayed window has a real start_mv for its earliest month.
+const ATTRIBUTION_FETCH_MONTHS = 13;
+// Months to DISPLAY on the bar chart + aggregate. Standard reporting
+// window; keeps the panel label as "Last 12M" and avoids bar-chart
+// clutter once we accumulate more history.
+const ATTRIBUTION_DISPLAY_MONTHS = 12;
 
 function groupBy<T, K extends string>(
   items: T[],
@@ -77,7 +83,7 @@ export default async function PerformancePage() {
   // Attribution window: last N completed months + current month.
   const today = new Date();
   const fromMonthDate = new Date(
-    Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - ATTRIBUTION_MONTHS, 1),
+    Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - ATTRIBUTION_FETCH_MONTHS, 1),
   );
   const fromMonth = fromMonthDate.toISOString().slice(0, 10);
 
@@ -147,7 +153,7 @@ export default async function PerformancePage() {
   })();
 
   const sortedMonths = Array.from(navByMonth.keys()).sort();
-  const monthlyReturns: MonthlyReturnRow[] = [];
+  const monthlyReturnsAll: MonthlyReturnRow[] = [];
   for (let i = 1; i < sortedMonths.length; i++) {
     const month = sortedMonths[i];
     if (month < fromMonth) continue;
@@ -157,7 +163,7 @@ export default async function PerformancePage() {
     const gain = end_nav - start_nav - flows;
     const denom = start_nav + 0.5 * flows;
     const return_pct = denom > 0 ? gain / denom : null;
-    monthlyReturns.push({
+    monthlyReturnsAll.push({
       month,
       label: monthIsoToLabel(month),
       return_pct,
@@ -167,6 +173,11 @@ export default async function PerformancePage() {
       flows,
     });
   }
+  // Cap display window. Pulling one extra month via ATTRIBUTION_FETCH_MONTHS
+  // makes sure the earliest displayed month has a real prior-month
+  // start_nav rather than zero — otherwise its bar would look like a
+  // huge one-period swing.
+  const monthlyReturns = monthlyReturnsAll.slice(-ATTRIBUTION_DISPLAY_MONTHS);
 
   // Group attribution rows by month for instant client-side drill-in.
   const attributionByMonth: Record<string, MonthlyAttributionRow[]> = {};
