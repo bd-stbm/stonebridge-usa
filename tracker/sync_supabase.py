@@ -87,12 +87,18 @@ def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
     """Recompute entity_attribution from the current entity tree.
 
     The trust_alias / trust_node_id columns store the position's owning
-    "entity" — which is either:
+    "entity" — which is the first ancestor (walking leaf-to-root) that
+    matches one of:
 
-      - the nearest shared-within-family vehicle ancestor (e.g. "Modyl LP"
-        when Modyl is held jointly by multiple trusts inside one family), OR
-      - the nearest trust ancestor (the default for positions held by a
-        single trust).
+      - a shared-within-family vehicle (e.g. "Modyl LP" when Modyl is
+        held jointly by multiple trusts inside one family), OR
+      - a trust (the default for positions held by a single trust), OR
+      - a retirement grouping (the "Dyne US Retirement" / "Markiles
+        Retirement" / "Miller Retirement" subtree under a sub-client).
+        Without this, retirement accounts (IRAs / 401Ks held directly
+        under a person node with no trust between them and the sub-
+        client root) would fall through with NULL trust_alias and
+        disappear from the Entity filter — a $6m+ gap for some families.
 
     A vehicle is "shared within family" when its group_node_id has 2+
     distinct trust ancestors. Cross-family shared vehicles are filtered
@@ -113,6 +119,18 @@ def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
 
     def is_trust(alias, name):
         return "trust" in (alias or "").lower() or "trust" in (name or "").lower()
+
+    def is_retirement_grouping(alias, name):
+        # Matches the sub-client-level grouping nodes (e.g. "Dyne US
+        # Retirement", "Markiles Retirement"). Sub-account aliases like
+        # "Murray Markiles Roth IRA" or "Mark Dyne Roth IRA" don't
+        # contain "retirement" and so don't match — walk skips them
+        # and picks the grouping node above instead, which is what we
+        # want as the Entity filter label.
+        return (
+            "retirement" in (alias or "").lower()
+            or "retirement" in (name or "").lower()
+        )
 
     # Compute trust-ancestor of each node once — needed for the shared-
     # vehicle detection step. We're not walking up to find sub_client here
@@ -161,10 +179,14 @@ def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
             # First-encountered entity wins. The walk goes leaf-to-root, so
             # a shared vehicle directly above a Goldman account (e.g. Modyl
             # LP) beats a higher-up trust (Mark I Dyne 2010). For accounts
-            # not under any shared vehicle, the first trust ancestor wins
-            # — same as the previous behaviour.
+            # not under any shared vehicle, the first trust ancestor wins.
+            # Retirement groupings are checked too so IRAs / 401Ks held
+            # directly under a person (no trust between) get attributed
+            # to e.g. "Markiles Retirement" instead of NULL.
             if entity_nid is None and cur_id != nid and (
-                cur_id in shared_vehicle_nodes or is_trust(alias, name)
+                cur_id in shared_vehicle_nodes
+                or is_trust(alias, name)
+                or is_retirement_grouping(alias, name)
             ):
                 entity_nid = cur_id
                 entity_alias = alias or name
