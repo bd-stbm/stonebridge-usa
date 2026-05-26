@@ -3,6 +3,9 @@
 import { useMemo, useState } from "react";
 import clsx from "clsx";
 import type { Position } from "@/lib/queries";
+import type { HoldingsGainPieces } from "@/lib/holdings-gains";
+import { holdingsGainKey } from "@/lib/holdings-gains";
+import { PERIODS, type PeriodKey } from "@/lib/returns";
 import { money, pct, price as priceFmt } from "@/lib/format";
 
 type SortKey =
@@ -15,7 +18,8 @@ type SortKey =
   | "price_local"
   | "mv_reporting"
   | "weight"
-  | "unrealized_gl_local";
+  | "gain_dollars"
+  | "gain_pct";
 
 type SortDir = "asc" | "desc";
 
@@ -33,7 +37,8 @@ const COLUMNS: {
   { key: "price_local", label: "Price", align: "right" },
   { key: "mv_reporting", label: "Value", align: "right" },
   { key: "weight", label: "Weight", align: "right" },
-  { key: "unrealized_gl_local", label: "Unrealized G/L", align: "right" },
+  { key: "gain_dollars", label: "$ gain", align: "right" },
+  { key: "gain_pct", label: "% gain", align: "right" },
 ];
 
 // Postgres NUMERIC columns come back from supabase-js as strings (to
@@ -87,16 +92,115 @@ function downloadCsv(filename: string, rows: (string | number | null)[][]) {
   URL.revokeObjectURL(url);
 }
 
+// Per-row gain pieces, normalised across all five periods so the
+// downstream sort / format / totals code doesn't fork on period.
+//   - 1D : start_mv = mv_reporting_yesterday, flows = 0, income = 0.
+//          Modified Dietz reduces to (today - yesterday) / yesterday,
+//          i.e. pure price move.
+//   - MTD/YTD/6M/1Y : pulled from holdings_period_attribution. A
+//          missing key (e.g. a row outside the RPC's universe) yields
+//          null gain pieces and the row's $gain / %gain render as "—".
+//
+// "available" is false when the period's gain can't be computed at all
+// — typically 1D where yfinance has no previous close for the security.
+interface RowGain {
+  available: boolean;
+  start_mv: number;
+  end_mv: number;
+  flows: number;
+  income: number;
+  gain_dollars: number | null;
+  gain_pct: number | null;
+}
+
+function rowGain(
+  p: Position,
+  period: PeriodKey,
+  gains: Map<string, HoldingsGainPieces>,
+): RowGain {
+  const endMv = num(p.mv_reporting);
+
+  if (period === "1d") {
+    if (p.mv_reporting_yesterday == null) {
+      return {
+        available: false,
+        start_mv: 0,
+        end_mv: endMv,
+        flows: 0,
+        income: 0,
+        gain_dollars: null,
+        gain_pct: null,
+      };
+    }
+    const startMv = num(p.mv_reporting_yesterday);
+    const gainDollars = endMv - startMv;
+    return {
+      available: true,
+      start_mv: startMv,
+      end_mv: endMv,
+      flows: 0,
+      income: 0,
+      gain_dollars: gainDollars,
+      gain_pct: startMv !== 0 ? gainDollars / startMv : null,
+    };
+  }
+
+  const pieces = gains.get(holdingsGainKey(period, p.account_node_id, p.security_id));
+  if (!pieces) {
+    return {
+      available: false,
+      start_mv: 0,
+      end_mv: endMv,
+      flows: 0,
+      income: 0,
+      gain_dollars: null,
+      gain_pct: null,
+    };
+  }
+  const startMv = pieces.start_mv;
+  const flows = pieces.flows;
+  const income = pieces.income;
+  const gainDollars = (endMv - startMv) - flows + income;
+  const denom = startMv + 0.5 * flows;
+  return {
+    available: true,
+    start_mv: startMv,
+    end_mv: endMv,
+    flows,
+    income,
+    gain_dollars: gainDollars,
+    gain_pct: denom !== 0 ? gainDollars / denom : null,
+  };
+}
+
+function periodLabel(period: PeriodKey): string {
+  return PERIODS.find(p => p.key === period)?.label ?? period.toUpperCase();
+}
+
 interface Props {
   positions: Position[];
   reportingCcy: string;
+  periodGainsEntries: [string, HoldingsGainPieces][];
 }
 
-export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
+export default function HoldingsFullTable({
+  positions,
+  reportingCcy,
+  periodGainsEntries,
+}: Props) {
   const [search, setSearch] = useState("");
   const [custodian, setCustodian] = useState("");
+  const [period, setPeriod] = useState<PeriodKey>("ytd");
   const [sortKey, setSortKey] = useState<SortKey>("mv_reporting");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  // Rehydrate the server-serialised entries into a Map once. The page
+  // component sends an array of [key, value] tuples across the RSC
+  // boundary because Maps aren't serialisable.
+  const periodGains = useMemo(
+    () => new Map(periodGainsEntries),
+    [periodGainsEntries],
+  );
 
   const totalNav = useMemo(
     () => positions.reduce((s, p) => s + num(p.mv_reporting), 0),
@@ -121,6 +225,15 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
     });
   }, [positions, search, custodian]);
 
+  // Per-row gain pieces for the currently-selected period. Computed
+  // once per (filtered, period) combination so the sort / render /
+  // totals loops below don't recompute it three times.
+  const rowGains = useMemo(() => {
+    const map = new Map<Position, RowGain>();
+    for (const p of filtered) map.set(p, rowGain(p, period, periodGains));
+    return map;
+  }, [filtered, period, periodGains]);
+
   const sorted = useMemo(() => {
     const arr = filtered.slice();
     arr.sort((a, b) => {
@@ -129,13 +242,17 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
         const wb = totalNav > 0 ? num(b.mv_reporting) / totalNav : 0;
         return compareValues(wa, wb, sortDir);
       }
-      // For numeric columns we coerce so sort respects numeric order even
-      // when supabase-js returned them as strings.
+      if (sortKey === "gain_dollars" || sortKey === "gain_pct") {
+        const ga = rowGains.get(a);
+        const gb = rowGains.get(b);
+        const va = sortKey === "gain_dollars" ? ga?.gain_dollars : ga?.gain_pct;
+        const vb = sortKey === "gain_dollars" ? gb?.gain_dollars : gb?.gain_pct;
+        return compareValues(va, vb, sortDir);
+      }
       const numericKeys: SortKey[] = [
         "quantity",
         "price_local",
         "mv_reporting",
-        "unrealized_gl_local",
       ];
       if (numericKeys.includes(sortKey)) {
         return compareValues(num(a[sortKey]), num(b[sortKey]), sortDir);
@@ -143,16 +260,46 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
       return compareValues(a[sortKey], b[sortKey], sortDir);
     });
     return arr;
-  }, [filtered, sortKey, sortDir, totalNav]);
+  }, [filtered, sortKey, sortDir, totalNav, rowGains]);
 
   const filteredNav = useMemo(
     () => filtered.reduce((s, p) => s + num(p.mv_reporting), 0),
     [filtered],
   );
-  const filteredGl = useMemo(
-    () => filtered.reduce((s, p) => s + num(p.unrealized_gl_local), 0),
-    [filtered],
-  );
+
+  // Aggregate Modified Dietz across the filtered set, in the same shape
+  // as the per-row math. Rows where the period gain isn't available
+  // (e.g. 1D for a security without a yfinance previous close) are
+  // excluded from the totals — including them with start_mv = 0 would
+  // double-count the end MV as a gain.
+  const totals = useMemo(() => {
+    let startMv = 0;
+    let endMv = 0;
+    let flows = 0;
+    let income = 0;
+    let any = false;
+    for (const p of filtered) {
+      const g = rowGains.get(p);
+      if (!g || !g.available) continue;
+      startMv += g.start_mv;
+      endMv += g.end_mv;
+      flows += g.flows;
+      income += g.income;
+      any = true;
+    }
+    if (!any) {
+      return { gain_dollars: null, gain_pct: null } as {
+        gain_dollars: number | null;
+        gain_pct: number | null;
+      };
+    }
+    const gainDollars = (endMv - startMv) - flows + income;
+    const denom = startMv + 0.5 * flows;
+    return {
+      gain_dollars: gainDollars,
+      gain_pct: denom !== 0 ? gainDollars / denom : null,
+    };
+  }, [filtered, rowGains]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -172,6 +319,7 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
   const hasActiveFilter = search || custodian;
 
   const handleExportCsv = () => {
+    const periodTag = periodLabel(period);
     const header = [
       "Asset",
       "Ticker",
@@ -187,13 +335,15 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
       "Value",
       "Reporting CCY",
       "Weight",
-      "Unrealized G/L",
+      `${periodTag} $ gain`,
+      `${periodTag} % gain`,
     ];
     const rows: (string | number | null)[][] = [header];
     for (const p of sorted) {
       const priceRaw = p.yf_price ?? p.price_local;
       const mvr = num(p.mv_reporting);
       const weight = totalNav > 0 ? mvr / totalNav : 0;
+      const g = rowGains.get(p);
       rows.push([
         p.asset_name ?? "",
         p.ticker_masttro ?? "",
@@ -209,17 +359,42 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
         mvr,
         p.reporting_ccy ?? reportingCcy,
         weight,
-        num(p.unrealized_gl_local),
+        g?.gain_dollars ?? "",
+        g?.gain_pct ?? "",
       ]);
     }
     const today = new Date().toISOString().slice(0, 10);
-    downloadCsv(`holdings_${today}.csv`, rows);
+    downloadCsv(`holdings_${today}_${period}.csv`, rows);
   };
 
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-slate-200 bg-white p-4">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Gain period
+            </span>
+            <div className="flex gap-1">
+              {PERIODS.map(p => (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => setPeriod(p.key)}
+                  className={clsx(
+                    "rounded px-2 py-0.5 text-xs font-medium",
+                    p.key === period
+                      ? "bg-brand text-white"
+                      : "text-slate-500 hover:bg-slate-100",
+                  )}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-12">
           <div className="md:col-span-9">
             <label className="block text-xs font-medium text-slate-500">
               Search
@@ -284,6 +459,12 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
             <tr>
               {COLUMNS.map(col => {
                 const isSorted = sortKey === col.key;
+                const label =
+                  col.key === "gain_dollars"
+                    ? `${periodLabel(period)} $ gain`
+                    : col.key === "gain_pct"
+                      ? `${periodLabel(period)} % gain`
+                      : col.label;
                 return (
                   <th
                     key={col.key}
@@ -295,7 +476,7 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
                   >
                     <span className={clsx("inline-flex items-center gap-1",
                       col.align === "right" && "justify-end")}>
-                      {col.label}
+                      {label}
                       {isSorted ? (
                         <span className="text-slate-400">
                           {sortDir === "asc" ? "▲" : "▼"}
@@ -322,10 +503,10 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
                 // already refreshed). Falls back to Masttro for securities
                 // yfinance doesn't cover.
                 const priceRaw = p.yf_price ?? p.price_local;
-                const price = priceRaw != null ? num(priceRaw) : null;
+                const priceNum = priceRaw != null ? num(priceRaw) : null;
                 const mvr = num(p.mv_reporting);
-                const gl = num(p.unrealized_gl_local);
                 const weight = totalNav > 0 ? mvr / totalNav : 0;
+                const g = rowGains.get(p);
                 return (
                   <tr key={i} className="hover:bg-slate-50">
                     <td className="px-4 py-3 font-medium text-slate-900">
@@ -344,8 +525,8 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
                       {qty.toLocaleString(undefined, { maximumFractionDigits: 4 })}
                     </td>
                     <td className="px-4 py-3 text-right text-slate-700">
-                      {price != null
-                        ? priceFmt(price, p.local_ccy ?? reportingCcy)
+                      {priceNum != null
+                        ? priceFmt(priceNum, p.local_ccy ?? reportingCcy)
                         : "—"}
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-slate-900">
@@ -355,10 +536,28 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
                     <td
                       className={clsx(
                         "px-4 py-3 text-right font-medium",
-                        gl >= 0 ? "text-emerald-600" : "text-rose-600",
+                        g?.gain_dollars == null
+                          ? "text-slate-400"
+                          : g.gain_dollars >= 0
+                            ? "text-emerald-600"
+                            : "text-rose-600",
                       )}
                     >
-                      {money(gl, p.local_ccy ?? reportingCcy)}
+                      {g?.gain_dollars != null
+                        ? money(g.gain_dollars, reportingCcy)
+                        : "—"}
+                    </td>
+                    <td
+                      className={clsx(
+                        "px-4 py-3 text-right font-medium",
+                        g?.gain_pct == null
+                          ? "text-slate-400"
+                          : g.gain_pct >= 0
+                            ? "text-emerald-600"
+                            : "text-rose-600",
+                      )}
+                    >
+                      {g?.gain_pct != null ? pct(g.gain_pct, 2) : "—"}
                     </td>
                   </tr>
                 );
@@ -382,10 +581,28 @@ export default function HoldingsFullTable({ positions, reportingCcy }: Props) {
                 <td
                   className={clsx(
                     "px-4 py-3 text-right font-semibold",
-                    filteredGl >= 0 ? "text-emerald-600" : "text-rose-600",
+                    totals.gain_dollars == null
+                      ? "text-slate-400"
+                      : totals.gain_dollars >= 0
+                        ? "text-emerald-600"
+                        : "text-rose-600",
                   )}
                 >
-                  {money(filteredGl, reportingCcy)}
+                  {totals.gain_dollars != null
+                    ? money(totals.gain_dollars, reportingCcy)
+                    : "—"}
+                </td>
+                <td
+                  className={clsx(
+                    "px-4 py-3 text-right font-semibold",
+                    totals.gain_pct == null
+                      ? "text-slate-400"
+                      : totals.gain_pct >= 0
+                        ? "text-emerald-600"
+                        : "text-rose-600",
+                  )}
+                >
+                  {totals.gain_pct != null ? pct(totals.gain_pct, 2) : "—"}
                 </td>
               </tr>
             </tfoot>

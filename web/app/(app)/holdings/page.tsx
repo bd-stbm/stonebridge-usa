@@ -2,6 +2,7 @@ import HoldingsFullTable from "@/components/HoldingsFullTable";
 import KpiTile from "@/components/KpiTile";
 import {
   computeKpis,
+  getHoldingsPeriodGains,
   getLatestPositions,
 } from "@/lib/queries";
 import {
@@ -19,7 +20,14 @@ export default async function HoldingsPage() {
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
   const assetClasses = getSelectedAssetClasses();
-  const positions = await getLatestPositions(subClient, trusts, accounts, assetClasses);
+  const [positions, periodGains] = await Promise.all([
+    getLatestPositions(subClient, trusts, accounts, assetClasses),
+    getHoldingsPeriodGains(subClient, trusts, accounts, assetClasses),
+  ]);
+  // Serialise the Map for the client component boundary — Map isn't
+  // a serialisable type across server-to-client props in Next.js App
+  // Router. Rebuilt back into a Map inside HoldingsFullTable.
+  const periodGainsEntries = Array.from(periodGains.entries());
   const kpis = computeKpis(positions);
   const visibleAssetClasses = new Set(
     positions
@@ -51,7 +59,11 @@ export default async function HoldingsPage() {
         />
       </div>
 
-      <HoldingsFullTable positions={positions} reportingCcy={kpis.reporting_ccy} />
+      <HoldingsFullTable
+        positions={positions}
+        reportingCcy={kpis.reporting_ccy}
+        periodGainsEntries={periodGainsEntries}
+      />
     </main>
   );
 }

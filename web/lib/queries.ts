@@ -2,6 +2,7 @@ import { getSupabaseServer } from "./supabase-server";
 import { DEFAULT_SUB_CLIENT } from "./trust-filter";
 import {
   computeAllPeriodReturns,
+  computePeriodStart,
   type Flow,
   type IndexPricePoint,
   type NavPoint as DietzNavPoint,
@@ -127,9 +128,11 @@ async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
 
 
 export interface Position {
+  account_node_id: string;
   account_alias: string;
   custodian: string | null;
   trust_alias: string | null;
+  security_id: number;
   asset_name: string;
   asset_class: string | null;
   security_type: string | null;
@@ -305,9 +308,9 @@ export async function getLatestPositions(
     let q = getSupabaseServer()
       .from("v_positions_refreshed")
       .select(
-        "account_alias, custodian, trust_alias, asset_name, asset_class, " +
-          "security_type, sector, ticker_masttro, isin, local_ccy, quantity, " +
-          "price_local, yf_price, mv_local, " +
+        "account_node_id, account_alias, custodian, trust_alias, security_id, " +
+          "asset_name, asset_class, security_type, sector, ticker_masttro, " +
+          "isin, local_ccy, quantity, price_local, yf_price, mv_local, " +
           "mv_reporting:mv_reporting_refreshed, mv_reporting_yesterday, " +
           "reporting_ccy, unit_cost_local, total_cost_local, " +
           "unrealized_gl_local",
@@ -324,6 +327,85 @@ export async function getLatestPositions(
     if (error) throw error;
     return (data ?? []) as unknown as Position[];
   });
+}
+
+// ---------------------------------------------------------------------------
+// Per-(period × account × security) gain pieces for the Holdings table.
+// ---------------------------------------------------------------------------
+
+// Types + the key helper live in lib/holdings-gains.ts so the client-
+// component table can import them without dragging in next/headers.
+export type {
+  HoldingsGainPieces,
+  HoldingsPeriodGainMap,
+  HoldingsPeriodKey,
+} from "./holdings-gains";
+export { holdingsGainKey } from "./holdings-gains";
+import {
+  holdingsGainKey,
+  type HoldingsPeriodGainMap,
+  type HoldingsPeriodKey,
+} from "./holdings-gains";
+
+export async function getHoldingsPeriodGains(
+  subClient: string = DEFAULT_SUB_CLIENT,
+  trusts: string[] = [],
+  accounts: string[] = [],
+  assetClasses: string[] = [],
+  endDate: Date = new Date(),
+): Promise<HoldingsPeriodGainMap> {
+  return timed(
+    `getHoldingsPeriodGains(${trusts.length}t,${accounts.length}a,${assetClasses.length}c)`,
+    async () => {
+      const excluded = excludedEntities(subClient);
+      const endIso = endDate.toISOString().slice(0, 10);
+      // Period anchors mirror lib/returns.ts::shiftDate so per-holding
+      // gain windows line up with the portfolio-level Returns tile.
+      const mtdStart = computePeriodStart("mtd", endDate);
+      const ytdStart = computePeriodStart("ytd", endDate);
+      const sixMStart = computePeriodStart("6m", endDate);
+      const oneYStart = computePeriodStart("1y", endDate);
+
+      const { data, error } = await getSupabaseServer().rpc(
+        "holdings_period_attribution",
+        {
+          p_sub_client:      subClient,
+          p_trusts:          trusts.length ? trusts : null,
+          p_accounts:        accounts.length ? accounts : null,
+          p_asset_classes:   assetClasses.length ? assetClasses : null,
+          p_excluded_trusts: excluded.length ? excluded : null,
+          p_end_date:        endIso,
+          p_mtd_start:       mtdStart,
+          p_ytd_start:       ytdStart,
+          p_six_m_start:     sixMStart,
+          p_one_y_start:     oneYStart,
+        },
+      );
+      if (error) throw error;
+      const rows = (data ?? []) as unknown as Array<{
+        period: HoldingsPeriodKey;
+        account_node_id: string;
+        security_id: number | string;
+        start_mv: number | string | null;
+        flows: number | string | null;
+        income: number | string | null;
+      }>;
+      const out: HoldingsPeriodGainMap = new Map();
+      for (const r of rows) {
+        const key = holdingsGainKey(
+          r.period,
+          r.account_node_id,
+          Number(r.security_id),
+        );
+        out.set(key, {
+          start_mv: Number(r.start_mv ?? 0),
+          flows: Number(r.flows ?? 0),
+          income: Number(r.income ?? 0),
+        });
+      }
+      return out;
+    },
+  );
 }
 
 export async function getNavSeries(
