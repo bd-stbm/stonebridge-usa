@@ -13,7 +13,6 @@ type SortKey =
   | "ticker_masttro"
   | "trust_alias"
   | "asset_class"
-  | "custodian"
   | "quantity"
   | "price_local"
   | "mv_reporting"
@@ -32,7 +31,6 @@ const COLUMNS: {
   { key: "ticker_masttro", label: "Ticker", align: "left" },
   { key: "asset_class", label: "Asset class", align: "left" },
   { key: "trust_alias", label: "Entity", align: "left" },
-  { key: "custodian", label: "Custodian", align: "left" },
   { key: "quantity", label: "Quantity", align: "right" },
   { key: "price_local", label: "Price", align: "right" },
   { key: "mv_reporting", label: "Value", align: "right" },
@@ -48,15 +46,6 @@ function num(v: unknown): number {
   if (v == null) return 0;
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : 0;
-}
-
-function uniqueValues(positions: Position[], key: keyof Position): string[] {
-  const set = new Set<string>();
-  for (const p of positions) {
-    const v = p[key];
-    if (typeof v === "string" && v.length > 0) set.add(v);
-  }
-  return Array.from(set).sort((a, b) => a.localeCompare(b));
 }
 
 function compareValues(a: unknown, b: unknown, dir: SortDir): number {
@@ -92,14 +81,93 @@ function downloadCsv(filename: string, rows: (string | number | null)[][]) {
   URL.revokeObjectURL(url);
 }
 
+// Row grain after aggregation. Positions are pre-grouped by
+// (security_id × trust_alias) so multiple accounts — across any
+// custodian — under the same entity collapse into one row.
+//
+// constituents[] records the underlying (account_node_id, security_id)
+// pairs so per-period gain pieces (from holdings_period_attribution,
+// which is at account×security grain) can be summed up.
+interface Holding {
+  key: string;
+  security_id: number;
+  asset_name: string;
+  asset_class: string | null;
+  security_type: string | null;
+  ticker_masttro: string | null;
+  isin: string | null;
+  local_ccy: string | null;
+  reporting_ccy: string;
+  yf_price: number | null;
+  price_local: number | null;
+  trust_alias: string | null;
+  quantity: number;
+  mv_reporting: number;
+  // null when any constituent lacks a yfinance previous-close. pricing
+  // refresh is keyed on security_id alone, so in practice constituents
+  // for a single security share the same null-state — but we guard
+  // against the mixed case anyway by collapsing to null on the first
+  // missing constituent.
+  mv_reporting_yesterday: number | null;
+  account_count: number;
+  constituents: { account_node_id: string; security_id: number }[];
+}
+
+function aggregateAcrossAccounts(positions: Position[]): Holding[] {
+  const map = new Map<string, Holding>();
+  for (const p of positions) {
+    const key = `${p.security_id}|${p.trust_alias ?? ""}`;
+    const existing = map.get(key);
+    const py = p.mv_reporting_yesterday;
+    if (existing) {
+      existing.quantity += num(p.quantity);
+      existing.mv_reporting += num(p.mv_reporting);
+      if (existing.mv_reporting_yesterday == null || py == null) {
+        existing.mv_reporting_yesterday = null;
+      } else {
+        existing.mv_reporting_yesterday += num(py);
+      }
+      existing.account_count += 1;
+      existing.constituents.push({
+        account_node_id: p.account_node_id,
+        security_id: p.security_id,
+      });
+    } else {
+      map.set(key, {
+        key,
+        security_id: p.security_id,
+        asset_name: p.asset_name,
+        asset_class: p.asset_class,
+        security_type: p.security_type,
+        ticker_masttro: p.ticker_masttro,
+        isin: p.isin,
+        local_ccy: p.local_ccy,
+        reporting_ccy: p.reporting_ccy,
+        yf_price: p.yf_price,
+        price_local: p.price_local,
+        trust_alias: p.trust_alias,
+        quantity: num(p.quantity),
+        mv_reporting: num(p.mv_reporting),
+        mv_reporting_yesterday: py != null ? num(py) : null,
+        account_count: 1,
+        constituents: [
+          { account_node_id: p.account_node_id, security_id: p.security_id },
+        ],
+      });
+    }
+  }
+  return Array.from(map.values());
+}
+
 // Per-row gain pieces, normalised across all five periods so the
 // downstream sort / format / totals code doesn't fork on period.
-//   - 1D : start_mv = mv_reporting_yesterday, flows = 0, income = 0.
-//          Modified Dietz reduces to (today - yesterday) / yesterday,
-//          i.e. pure price move.
-//   - MTD/YTD/6M/1Y : pulled from holdings_period_attribution. A
-//          missing key (e.g. a row outside the RPC's universe) yields
-//          null gain pieces and the row's $gain / %gain render as "—".
+//   - 1D : start_mv = mv_reporting_yesterday (already aggregated to
+//          the row's grain), flows = 0, income = 0. Modified Dietz
+//          reduces to (today - yesterday) / yesterday, i.e. pure
+//          price move.
+//   - MTD/YTD/6M/1Y : start_mv / flows / income summed across the
+//          row's constituents from the holdings_period_attribution
+//          map (keyed at account × security).
 //
 // "available" is false when the period's gain can't be computed at all
 // — typically 1D where yfinance has no previous close for the security.
@@ -114,14 +182,14 @@ interface RowGain {
 }
 
 function rowGain(
-  p: Position,
+  h: Holding,
   period: PeriodKey,
   gains: Map<string, HoldingsGainPieces>,
 ): RowGain {
-  const endMv = num(p.mv_reporting);
+  const endMv = h.mv_reporting;
 
   if (period === "1d") {
-    if (p.mv_reporting_yesterday == null) {
+    if (h.mv_reporting_yesterday == null) {
       return {
         available: false,
         start_mv: 0,
@@ -132,7 +200,7 @@ function rowGain(
         gain_pct: null,
       };
     }
-    const startMv = num(p.mv_reporting_yesterday);
+    const startMv = h.mv_reporting_yesterday;
     const gainDollars = endMv - startMv;
     return {
       available: true,
@@ -145,8 +213,21 @@ function rowGain(
     };
   }
 
-  const pieces = gains.get(holdingsGainKey(period, p.account_node_id, p.security_id));
-  if (!pieces) {
+  let startMv = 0;
+  let flows = 0;
+  let income = 0;
+  let anyFound = false;
+  for (const c of h.constituents) {
+    const pieces = gains.get(
+      holdingsGainKey(period, c.account_node_id, c.security_id),
+    );
+    if (!pieces) continue;
+    startMv += pieces.start_mv;
+    flows += pieces.flows;
+    income += pieces.income;
+    anyFound = true;
+  }
+  if (!anyFound) {
     return {
       available: false,
       start_mv: 0,
@@ -157,9 +238,6 @@ function rowGain(
       gain_pct: null,
     };
   }
-  const startMv = pieces.start_mv;
-  const flows = pieces.flows;
-  const income = pieces.income;
   const gainDollars = (endMv - startMv) - flows + income;
   const denom = startMv + 0.5 * flows;
   return {
@@ -188,8 +266,6 @@ export default function HoldingsFullTable({
   reportingCcy,
   periodGainsEntries,
 }: Props) {
-  const [search, setSearch] = useState("");
-  const [custodian, setCustodian] = useState("");
   const [period, setPeriod] = useState<PeriodKey>("ytd");
   const [sortKey, setSortKey] = useState<SortKey>("mv_reporting");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -207,39 +283,26 @@ export default function HoldingsFullTable({
     [positions],
   );
 
-  const custodianOptions = useMemo(
-    () => uniqueValues(positions, "custodian"),
+  const holdings = useMemo(
+    () => aggregateAcrossAccounts(positions),
     [positions],
   );
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return positions.filter(p => {
-      if (custodian && p.custodian !== custodian) return false;
-      if (!q) return true;
-      const hay = [p.asset_name, p.ticker_masttro, p.isin]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(q);
-    });
-  }, [positions, search, custodian]);
-
   // Per-row gain pieces for the currently-selected period. Computed
-  // once per (filtered, period) combination so the sort / render /
+  // once per (holdings, period) combination so the sort / render /
   // totals loops below don't recompute it three times.
   const rowGains = useMemo(() => {
-    const map = new Map<Position, RowGain>();
-    for (const p of filtered) map.set(p, rowGain(p, period, periodGains));
+    const map = new Map<Holding, RowGain>();
+    for (const h of holdings) map.set(h, rowGain(h, period, periodGains));
     return map;
-  }, [filtered, period, periodGains]);
+  }, [holdings, period, periodGains]);
 
   const sorted = useMemo(() => {
-    const arr = filtered.slice();
+    const arr = holdings.slice();
     arr.sort((a, b) => {
       if (sortKey === "weight") {
-        const wa = totalNav > 0 ? num(a.mv_reporting) / totalNav : 0;
-        const wb = totalNav > 0 ? num(b.mv_reporting) / totalNav : 0;
+        const wa = totalNav > 0 ? a.mv_reporting / totalNav : 0;
+        const wb = totalNav > 0 ? b.mv_reporting / totalNav : 0;
         return compareValues(wa, wb, sortDir);
       }
       if (sortKey === "gain_dollars" || sortKey === "gain_pct") {
@@ -249,37 +312,39 @@ export default function HoldingsFullTable({
         const vb = sortKey === "gain_dollars" ? gb?.gain_dollars : gb?.gain_pct;
         return compareValues(va, vb, sortDir);
       }
-      const numericKeys: SortKey[] = [
-        "quantity",
-        "price_local",
-        "mv_reporting",
-      ];
-      if (numericKeys.includes(sortKey)) {
-        return compareValues(num(a[sortKey]), num(b[sortKey]), sortDir);
+      if (
+        sortKey === "quantity" ||
+        sortKey === "price_local" ||
+        sortKey === "mv_reporting"
+      ) {
+        const va =
+          sortKey === "price_local"
+            ? a.yf_price ?? a.price_local
+            : a[sortKey];
+        const vb =
+          sortKey === "price_local"
+            ? b.yf_price ?? b.price_local
+            : b[sortKey];
+        return compareValues(num(va), num(vb), sortDir);
       }
       return compareValues(a[sortKey], b[sortKey], sortDir);
     });
     return arr;
-  }, [filtered, sortKey, sortDir, totalNav, rowGains]);
+  }, [holdings, sortKey, sortDir, totalNav, rowGains]);
 
-  const filteredNav = useMemo(
-    () => filtered.reduce((s, p) => s + num(p.mv_reporting), 0),
-    [filtered],
-  );
-
-  // Aggregate Modified Dietz across the filtered set, in the same shape
-  // as the per-row math. Rows where the period gain isn't available
-  // (e.g. 1D for a security without a yfinance previous close) are
-  // excluded from the totals — including them with start_mv = 0 would
-  // double-count the end MV as a gain.
+  // Aggregate Modified Dietz across the visible (post-aggregation)
+  // rows. Rows where the period gain isn't available (e.g. 1D for a
+  // security without a yfinance previous close) are excluded —
+  // including them with start_mv = 0 would double-count the end MV
+  // as a gain.
   const totals = useMemo(() => {
     let startMv = 0;
     let endMv = 0;
     let flows = 0;
     let income = 0;
     let any = false;
-    for (const p of filtered) {
-      const g = rowGains.get(p);
+    for (const h of holdings) {
+      const g = rowGains.get(h);
       if (!g || !g.available) continue;
       startMv += g.start_mv;
       endMv += g.end_mv;
@@ -299,7 +364,7 @@ export default function HoldingsFullTable({
       gain_dollars: gainDollars,
       gain_pct: denom !== 0 ? gainDollars / denom : null,
     };
-  }, [filtered, rowGains]);
+  }, [holdings, rowGains]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -307,16 +372,9 @@ export default function HoldingsFullTable({
     } else {
       setSortKey(key);
       setSortDir(key === "asset_name" || key === "ticker_masttro" || key === "trust_alias"
-        || key === "asset_class" || key === "custodian" ? "asc" : "desc");
+        || key === "asset_class" ? "asc" : "desc");
     }
   };
-
-  const resetFilters = () => {
-    setSearch("");
-    setCustodian("");
-  };
-
-  const hasActiveFilter = search || custodian;
 
   const handleExportCsv = () => {
     const periodTag = periodLabel(period);
@@ -327,8 +385,7 @@ export default function HoldingsFullTable({
       "Asset class",
       "Security type",
       "Entity",
-      "Custodian",
-      "Account",
+      "Accounts",
       "Quantity",
       "Price",
       "Local CCY",
@@ -339,25 +396,23 @@ export default function HoldingsFullTable({
       `${periodTag} % gain`,
     ];
     const rows: (string | number | null)[][] = [header];
-    for (const p of sorted) {
-      const priceRaw = p.yf_price ?? p.price_local;
-      const mvr = num(p.mv_reporting);
-      const weight = totalNav > 0 ? mvr / totalNav : 0;
-      const g = rowGains.get(p);
+    for (const h of sorted) {
+      const priceRaw = h.yf_price ?? h.price_local;
+      const weight = totalNav > 0 ? h.mv_reporting / totalNav : 0;
+      const g = rowGains.get(h);
       rows.push([
-        p.asset_name ?? "",
-        p.ticker_masttro ?? "",
-        p.isin ?? "",
-        p.asset_class ?? "",
-        p.security_type ?? "",
-        p.trust_alias ?? "",
-        p.custodian ?? "",
-        p.account_alias ?? "",
-        num(p.quantity),
+        h.asset_name ?? "",
+        h.ticker_masttro ?? "",
+        h.isin ?? "",
+        h.asset_class ?? "",
+        h.security_type ?? "",
+        h.trust_alias ?? "",
+        h.account_count,
+        h.quantity,
         priceRaw != null ? num(priceRaw) : "",
-        p.local_ccy ?? "",
-        mvr,
-        p.reporting_ccy ?? reportingCcy,
+        h.local_ccy ?? "",
+        h.mv_reporting,
+        h.reporting_ccy ?? reportingCcy,
         weight,
         g?.gain_dollars ?? "",
         g?.gain_pct ?? "",
@@ -393,54 +448,17 @@ export default function HoldingsFullTable({
               ))}
             </div>
           </div>
-        </div>
-        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-12">
-          <div className="md:col-span-9">
-            <label className="block text-xs font-medium text-slate-500">
-              Search
-            </label>
-            <input
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Asset, ticker, ISIN…"
-              className="mt-1 block w-full rounded border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
-            />
-          </div>
-          <div className="md:col-span-3">
-            <label className="block text-xs font-medium text-slate-500">Custodian</label>
-            <select
-              value={custodian}
-              onChange={e => setCustodian(e.target.value)}
-              className="mt-1 block w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
-            >
-              <option value="">All ({custodianOptions.length})</option>
-              {custodianOptions.map(c => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
-          <div>
-            Showing <span className="font-medium text-slate-700">{filtered.length}</span> of{" "}
-            <span className="font-medium text-slate-700">{positions.length}</span> positions
-            {" · "}
-            <span className="font-medium text-slate-700">{money(filteredNav, reportingCcy)}</span>
-            {hasActiveFilter && totalNav > 0 ? (
-              <> ({pct(filteredNav / totalNav, 1)} of total)</>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-3">
-            {hasActiveFilter ? (
-              <button
-                type="button"
-                onClick={resetFilters}
-                className="text-slate-600 underline hover:text-slate-900"
-              >
-                Clear filters
-              </button>
-            ) : null}
+          <div className="flex items-center gap-3 text-xs text-slate-500">
+            <span>
+              <span className="font-medium text-slate-700">{holdings.length}</span>{" "}
+              {holdings.length === 1 ? "holding" : "holdings"} across{" "}
+              <span className="font-medium text-slate-700">{positions.length}</span>{" "}
+              account positions
+              {" · "}
+              <span className="font-medium text-slate-700">
+                {money(totalNav, reportingCcy)}
+              </span>
+            </span>
             <button
               type="button"
               onClick={handleExportCsv}
@@ -492,45 +510,44 @@ export default function HoldingsFullTable({
             {sorted.length === 0 ? (
               <tr>
                 <td colSpan={COLUMNS.length} className="px-4 py-8 text-center text-sm text-slate-500">
-                  No positions match the current filters.
+                  No positions in scope.
                 </td>
               </tr>
             ) : (
-              sorted.map((p, i) => {
-                const qty = num(p.quantity);
+              sorted.map(h => {
                 // Prefer yfinance price when present so the Price column
                 // ties out with the Value column (which is mv_reporting,
                 // already refreshed). Falls back to Masttro for securities
                 // yfinance doesn't cover.
-                const priceRaw = p.yf_price ?? p.price_local;
+                const priceRaw = h.yf_price ?? h.price_local;
                 const priceNum = priceRaw != null ? num(priceRaw) : null;
-                const mvr = num(p.mv_reporting);
-                const weight = totalNav > 0 ? mvr / totalNav : 0;
-                const g = rowGains.get(p);
+                const weight = totalNav > 0 ? h.mv_reporting / totalNav : 0;
+                const g = rowGains.get(h);
                 return (
-                  <tr key={i} className="hover:bg-slate-50">
+                  <tr key={h.key} className="hover:bg-slate-50">
                     <td className="px-4 py-3 font-medium text-slate-900">
-                      {p.asset_name}
-                      {p.security_type ? (
+                      {h.asset_name}
+                      {h.security_type || h.account_count > 1 ? (
                         <div className="text-xs font-normal text-slate-400">
-                          {p.security_type}
+                          {h.security_type}
+                          {h.security_type && h.account_count > 1 ? " · " : ""}
+                          {h.account_count > 1 ? `${h.account_count} accounts` : ""}
                         </div>
                       ) : null}
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{p.ticker_masttro ?? "—"}</td>
-                    <td className="px-4 py-3 text-slate-600">{p.asset_class ?? "—"}</td>
-                    <td className="px-4 py-3 text-slate-600">{p.trust_alias ?? "—"}</td>
-                    <td className="px-4 py-3 text-slate-600">{p.custodian ?? "—"}</td>
+                    <td className="px-4 py-3 text-slate-600">{h.ticker_masttro ?? "—"}</td>
+                    <td className="px-4 py-3 text-slate-600">{h.asset_class ?? "—"}</td>
+                    <td className="px-4 py-3 text-slate-600">{h.trust_alias ?? "—"}</td>
                     <td className="px-4 py-3 text-right text-slate-700">
-                      {qty.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                      {h.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 })}
                     </td>
                     <td className="px-4 py-3 text-right text-slate-700">
                       {priceNum != null
-                        ? priceFmt(priceNum, p.local_ccy ?? reportingCcy)
+                        ? priceFmt(priceNum, h.local_ccy ?? reportingCcy)
                         : "—"}
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-slate-900">
-                      {money(mvr, reportingCcy)}
+                      {money(h.mv_reporting, reportingCcy)}
                     </td>
                     <td className="px-4 py-3 text-right text-slate-700">{pct(weight, 2)}</td>
                     <td
@@ -567,16 +584,16 @@ export default function HoldingsFullTable({
           {sorted.length > 0 ? (
             <tfoot className="bg-slate-50 text-sm">
               <tr className="border-t border-slate-200">
-                <td colSpan={5} className="px-4 py-3 text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Totals ({filtered.length} {filtered.length === 1 ? "position" : "positions"})
+                <td colSpan={4} className="px-4 py-3 text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Totals ({holdings.length} {holdings.length === 1 ? "holding" : "holdings"})
                 </td>
                 <td className="px-4 py-3" />
                 <td className="px-4 py-3" />
                 <td className="px-4 py-3 text-right font-semibold text-slate-900">
-                  {money(filteredNav, reportingCcy)}
+                  {money(totalNav, reportingCcy)}
                 </td>
                 <td className="px-4 py-3 text-right text-slate-700">
-                  {totalNav > 0 ? pct(filteredNav / totalNav, 1) : "—"}
+                  {totalNav > 0 ? pct(1, 1) : "—"}
                 </td>
                 <td
                   className={clsx(
