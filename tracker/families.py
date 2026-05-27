@@ -34,4 +34,10 @@ FAMILIES = [
         "client_id": 7693,
         "reporting_ccy": "AUD",
     },
+    {
+        "node_id": "102_93363",      # GWM nodeId for Bermeister Family
+        "label": "Bermeister Family",
+        "client_id": 7693,
+        "reporting_ccy": "AUD",
+    },
 ]
