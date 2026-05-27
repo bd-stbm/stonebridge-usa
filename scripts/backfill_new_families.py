@@ -47,9 +47,13 @@ from tracker.sync_supabase import (
 HIST_MONTHS = 12   # Masttro per-call cap
 PERIOD_12M = 4
 
-# GWM nodeIds of the families to backfill. Keep this narrow so re-runs
-# don't burn API calls on already-loaded families.
-TARGET_NODES = {"102_93362"}  # Dyne Family (AU); Markiles/Miller already loaded
+# GWM nodeIds of the families to backfill. Empty = no-op so accidental
+# re-runs don't burn API budget. Set to the nodeId(s) you actually want
+# to (re-)backfill before running. Past runs:
+#   {"102_93361", "102_93360"}  Markiles + Miller (original onboarding)
+#   {"102_93362"}               Dyne Family (AU) onboarding
+#   {"102_93356"}               Dyne Family US re-backfill (post Bensal-fix)
+TARGET_NODES: set[str] = set()
 
 
 def _yearmonth_n_months_ago(today: dt.date, n: int) -> int:
