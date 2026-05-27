@@ -153,7 +153,7 @@ export default async function OverviewPage() {
     <main className="mx-auto max-w-7xl px-6 py-8">
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <KpiTile label="NAV (latest)" value={money(kpis.nav, kpis.reporting_ccy)} />
-        <div className="md:col-span-2">
+        <div className="md:col-span-3">
           <ReturnsTile
             returns={returns}
             indexReturns={indexReturns}
@@ -162,11 +162,6 @@ export default async function OverviewPage() {
             reportingCcy={kpis.reporting_ccy}
           />
         </div>
-        <KpiTile
-          label="Unrealized G/L"
-          value={money(kpis.unrealized_gl, kpis.reporting_ccy)}
-          tone={kpis.unrealized_gl >= 0 ? "positive" : "negative"}
-        />
       </div>
 
       <section className="mt-8">
