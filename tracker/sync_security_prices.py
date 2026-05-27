@@ -14,24 +14,41 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import time
 import warnings
 
 import yfinance as yf
 
+from tracker.yf_retry import with_yf_retry
+
 warnings.filterwarnings("ignore")
+
+# Per-ticker pause. Both sync_security_prices and sync_indices issue
+# one HTTP request per ticker — without a small sleep, a held universe
+# of a few hundred names runs Yahoo's hourly limit down in a couple of
+# minutes flat. 0.5s is barely visible on the wall clock but doubles
+# the effective request budget.
+_PER_TICKER_THROTTLE = 0.5
 
 
 def _tracked_tickers(conn) -> list[str]:
-    """Distinct ticker_yf values from securities that have actually been
-    held (i.e. appear in position_snapshot) — no point fetching history
-    for tickers we don't track."""
+    """Distinct ticker_yf values for currently-held securities.
+
+    Filters via v_latest_positions (latest snapshot per account,
+    quantity > 0) so we only pull history for tickers the dashboard
+    actually shows. The earlier EXISTS against position_snapshot
+    matched any historical holding — that inflated daily request volume
+    well past Yahoo's rate-limit threshold."""
     with conn.cursor() as cur:
         cur.execute(
             """SELECT DISTINCT s.ticker_yf
                FROM security s
                WHERE s.ticker_yf IS NOT NULL
-                 AND EXISTS (SELECT 1 FROM position_snapshot p
-                             WHERE p.security_id = s.security_id)
+                 AND EXISTS (
+                     SELECT 1 FROM v_latest_positions lp
+                     WHERE lp.security_id = s.security_id
+                       AND lp.quantity > 0
+                 )
                ORDER BY s.ticker_yf"""
         )
         return [r["ticker_yf"] for r in cur.fetchall()]
@@ -80,9 +97,14 @@ def backfill_security_prices(conn, years: int = 5) -> dict[str, int]:
     tickers = _tracked_tickers(conn)
     print(f"  {len(tickers)} held tickers to backfill")
     for i, ticker in enumerate(tickers, start=1):
+        if i > 1:
+            time.sleep(_PER_TICKER_THROTTLE)
         print(f"  [{i}/{len(tickers)}] {ticker}", end="", flush=True)
         try:
-            rows = _fetch_history(ticker, start, end)
+            rows = with_yf_retry(
+                f"history {ticker}",
+                lambda t=ticker: _fetch_history(t, start, end),
+            )
             n = _upsert_prices(conn, ticker, rows)
             stats[ticker] = n
             print(f" -> {n} rows")
@@ -98,9 +120,15 @@ def sync_security_prices_recent(conn, days_back: int = 10) -> dict[str, int]:
     end = dt.date.today()
     start = end - dt.timedelta(days=days_back)
     stats: dict[str, int] = {}
-    for ticker in _tracked_tickers(conn):
+    tickers = _tracked_tickers(conn)
+    for i, ticker in enumerate(tickers):
+        if i > 0:
+            time.sleep(_PER_TICKER_THROTTLE)
         try:
-            rows = _fetch_history(ticker, start, end)
+            rows = with_yf_retry(
+                f"history {ticker}",
+                lambda t=ticker: _fetch_history(t, start, end),
+            )
             n = _upsert_prices(conn, ticker, rows)
             stats[ticker] = n
         except Exception:

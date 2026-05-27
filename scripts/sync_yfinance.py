@@ -33,11 +33,25 @@ def main() -> int:
     conn = connect()
     try:
         with conn.cursor() as cur:
+            # Restrict to currently-held equities (latest snapshot per
+            # account, quantity > 0). The earlier `EXISTS … FROM
+            # position_snapshot` matched every equity that had ever
+            # been held — historical month-end positions of since-sold
+            # securities included. That inflated the daily request
+            # volume well past 1,500 tickers and tripped Yahoo's rate
+            # limit. v_latest_positions already implements the
+            # per-account "latest snapshot" filter the dashboard reads
+            # from, so the universe here now matches what the holdings
+            # table actually needs prices for.
             cur.execute("""
                 SELECT DISTINCT s.security_id, s.ticker_masttro, s.ticker_yf, s.isin
                 FROM security s
                 WHERE s.asset_class = 'Equity'
-                  AND EXISTS (SELECT 1 FROM position_snapshot p WHERE p.security_id = s.security_id)
+                  AND EXISTS (
+                      SELECT 1 FROM v_latest_positions lp
+                      WHERE lp.security_id = s.security_id
+                        AND lp.quantity > 0
+                  )
             """)
             rows = cur.fetchall()
 

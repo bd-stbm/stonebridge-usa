@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
+import time
 import urllib.error
 import urllib.request
 import warnings
@@ -17,6 +18,7 @@ import yfinance as yf
 
 from tracker import DEFAULT_DB_PATH
 from tracker.ingest import connect, _log
+from tracker.yf_retry import with_yf_retry
 
 warnings.filterwarnings("ignore")
 
@@ -34,22 +36,43 @@ def normalize_ticker(t):
     return t or None
 
 
-def _fetch_yf(tickers: list[str], chunk: int = 50) -> tuple[dict, list]:
+def _fetch_yf(
+    tickers: list[str], chunk: int = 50, throttle: float = 1.0,
+) -> tuple[dict, list]:
     """Fetch latest + previous close for each ticker.
 
+    Chunked at `chunk` tickers per yf.download call. `threads=False`
+    so yfinance issues a single sequential HTTP request per chunk
+    rather than spawning a thread pool under the hood — the parallel
+    burst from threads=True was a primary rate-limit trigger.
+    `throttle` seconds of sleep between chunks adds further headroom.
+    A rate-limit response on the download call is retried via
+    with_yf_retry; if it still fails after backoff, the whole chunk is
+    marked failed and the run continues.
+
     Returns:
-        ok: {ticker: (price_latest, latest_date, price_previous_or_None, previous_date_or_None)}
+        ok: {ticker: (price_latest, latest_date, price_previous_or_None,
+                       previous_date_or_None)}
         failed: [tickers]
     """
     ok, failed = {}, []
+    n_chunks = (len(tickers) + chunk - 1) // chunk
     for i in range(0, len(tickers), chunk):
         batch = tickers[i:i + chunk]
+        if i > 0 and throttle:
+            time.sleep(throttle)
         try:
-            data = yf.download(
-                tickers=batch, period="5d", group_by="ticker",
-                auto_adjust=False, progress=False, threads=True,
+            data = with_yf_retry(
+                f"yf.download chunk {i // chunk + 1}/{n_chunks} ({len(batch)} tk)",
+                lambda b=batch: yf.download(
+                    tickers=b, period="5d", group_by="ticker",
+                    auto_adjust=False, progress=False, threads=False,
+                ),
             )
         except Exception:
+            # Rate limit exhausted retries, or any other download-level
+            # error. Mark the chunk failed and move on — the per-batch
+            # OpenFIGI fallback pass will retry these via fresh tickers.
             failed.extend(batch)
             continue
         for t in batch:
@@ -64,7 +87,12 @@ def _fetch_yf(tickers: list[str], chunk: int = 50) -> tuple[dict, list]:
                     ok[t] = (float(closes.iloc[-1]), closes.index[-1].date(), None, None)
                 else:
                     failed.append(t)
-            except (KeyError, TypeError):
+            except Exception:
+                # Broadened from (KeyError, TypeError) because yfinance
+                # >= 0.2.40 can raise YFRateLimitError lazily during
+                # the per-ticker Close access. Treat any access-time
+                # failure as a per-ticker miss rather than aborting the
+                # whole chunk.
                 failed.append(t)
     return ok, failed
 

@@ -12,11 +12,20 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import time
 import warnings
 
 import yfinance as yf
 
+from tracker.yf_retry import with_yf_retry
+
 warnings.filterwarnings("ignore")
+
+# Small pause between index fetches. There are only a few index tickers
+# so the absolute cost is negligible, but keeping the same pattern as
+# sync_security_prices means a rate-limit storm on the prior step
+# doesn't cascade straight into the index step.
+_PER_TICKER_THROTTLE = 0.5
 
 
 def _tracked_tickers(conn) -> list[str]:
@@ -67,9 +76,20 @@ def backfill_indices(conn, years: int = 5) -> dict[str, int]:
     end = dt.date.today()
     start = end - dt.timedelta(days=years * 365 + 30)
     stats: dict[str, int] = {}
-    for ticker in _tracked_tickers(conn):
+    tickers = _tracked_tickers(conn)
+    for i, ticker in enumerate(tickers):
+        if i > 0:
+            time.sleep(_PER_TICKER_THROTTLE)
         print(f"  backfilling {ticker} {start} -> {end}")
-        rows = _fetch_history(ticker, start, end)
+        try:
+            rows = with_yf_retry(
+                f"index {ticker}",
+                lambda t=ticker: _fetch_history(t, start, end),
+            )
+        except Exception as e:
+            print(f"    FAILED: {e}")
+            stats[ticker] = 0
+            continue
         n = _upsert_prices(conn, ticker, rows)
         stats[ticker] = n
         print(f"    {n} rows")
@@ -82,8 +102,17 @@ def sync_indices_recent(conn, days_back: int = 10) -> dict[str, int]:
     end = dt.date.today()
     start = end - dt.timedelta(days=days_back)
     stats: dict[str, int] = {}
-    for ticker in _tracked_tickers(conn):
-        rows = _fetch_history(ticker, start, end)
-        n = _upsert_prices(conn, ticker, rows)
-        stats[ticker] = n
+    tickers = _tracked_tickers(conn)
+    for i, ticker in enumerate(tickers):
+        if i > 0:
+            time.sleep(_PER_TICKER_THROTTLE)
+        try:
+            rows = with_yf_retry(
+                f"index {ticker}",
+                lambda t=ticker: _fetch_history(t, start, end),
+            )
+            n = _upsert_prices(conn, ticker, rows)
+            stats[ticker] = n
+        except Exception:
+            stats[ticker] = 0
     return stats
