@@ -77,25 +77,36 @@ def _is_trust(alias: str | None, name: str | None) -> bool:
 
 def _detect_shared_vehicle_nodes(
     nodes: dict[str, tuple[str | None, str | None, str | None, str | None]],
+    root_node_id: str = ROOT_NODE_ID,
 ) -> set[str]:
     """Return the set of node_ids whose group_node_id is "shared across
-    multiple distinct trust ancestors" — i.e. each reflection of the
-    same physical vehicle represents a different trust's slice.
+    multiple distinct owners" — i.e. each reflection of the same
+    physical vehicle represents one owner's slice of the underlying
+    positions, and all reflections must be ingested for totals to be
+    correct.
 
-    Covers two flavours uniformly:
-      - Within-family sharing (Modyl LP held by 3 Dyne trusts) — each
-        reflection is one trust's slice of Modyl's holdings.
-      - Cross-family sharing (Dendell LLC held by Dyne + Markiles +
-        Miller) — each family's reflection is its pro-rata slice.
+    "Owner" is defined as the first ancestor (walking leaf-to-root)
+    that is either:
+      - a trust (covers vehicles held by multiple trusts — Modyl LP
+        under several Dyne trusts; Dendell LLC across families), OR
+      - a direct child of the tenant root (covers person-tier
+        ancestors — Bensal Trust held 50/50 by Benjamin and Saul in
+        the AU family; Cornerstone Super under Susan + Ronald; and
+        cross-sub-client shares like Australian-Super holdings
+        reflected under Dyne US Retirement + Kevin/Beverley Bermeister).
 
-    In both cases the per-reflection positions must all be ingested for
-    totals to be correct. Single-reflection groups and groups whose
-    reflections all share one trust ancestor are NOT included (they're
-    safely deduped via the (bank, account#) fingerprint).
+    Single-reflection groups and groups whose reflections all roll up
+    to one owner are NOT included — those are safely deduped via the
+    (bank, account#) fingerprint rule. Pre-2026 the rule only counted
+    trust ancestors, which silently dropped half of AU's 50/50-owned
+    trusts (each reflection's pro-rata slice appeared under a person,
+    not a trust).
 
     `nodes` shape: {node_id: (parent_node_id, alias, name, group_node_id)}.
     """
-    def trust_ancestor_of(start_nid: str) -> str | None:
+    sub_clients = {nid for nid, (pid, _, _, _) in nodes.items() if pid == root_node_id}
+
+    def owner_ancestor_of(start_nid: str) -> str | None:
         cur_id = nodes[start_nid][0]  # skip self
         for _ in range(50):
             if not cur_id or cur_id == "_":
@@ -103,18 +114,25 @@ def _detect_shared_vehicle_nodes(
             pid, alias, name, _ = nodes.get(cur_id, (None, None, None, None))
             if _is_trust(alias, name):
                 return cur_id
+            # Direct child of the tenant root = sub-client itself,
+            # would be a degenerate "owner" of everything. Skip it.
+            # The owner we want is one level deeper — the person tier
+            # or retirement wrapper, i.e. a node whose PARENT is a
+            # sub-client.
+            if pid in sub_clients:
+                return cur_id
             cur_id = pid
         return None
 
     from collections import defaultdict
-    trust_ancestors_by_group: dict[str, set[str]] = defaultdict(set)
+    owners_by_group: dict[str, set[str]] = defaultdict(set)
     for nid, (_, _, _, gnid) in nodes.items():
         if gnid is None:
             continue
-        ta = trust_ancestor_of(nid)
-        if ta is not None:
-            trust_ancestors_by_group[gnid].add(ta)
-    shared_groups = {g for g, tas in trust_ancestors_by_group.items() if len(tas) > 1}
+        oa = owner_ancestor_of(nid)
+        if oa is not None:
+            owners_by_group[gnid].add(oa)
+    shared_groups = {g for g, owners in owners_by_group.items() if len(owners) > 1}
     return {nid for nid, (_, _, _, gnid) in nodes.items() if gnid in shared_groups}
 
 
