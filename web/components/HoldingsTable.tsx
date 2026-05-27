@@ -1,4 +1,4 @@
-import { Position } from "@/lib/queries";
+import type { Position } from "@/lib/queries";
 import { money, pct, price } from "@/lib/format";
 
 interface Props {
@@ -16,7 +16,6 @@ interface AggregatedHolding {
   quantity: number;
   price_display: number | null;
   mv_reporting: number;
-  unrealized_gl_local: number;
 }
 
 const CASH_ASSET_CLASS = "Cash and Equivalents";
@@ -34,7 +33,6 @@ function aggregateByHolding(positions: Position[]): AggregatedHolding[] {
     if (existing) {
       existing.quantity += Number(p.quantity ?? 0);
       existing.mv_reporting += Number(p.mv_reporting ?? 0);
-      existing.unrealized_gl_local += Number(p.unrealized_gl_local ?? 0);
       if (existing.price_display == null && px != null) existing.price_display = px;
       if (existing.local_ccy == null && p.local_ccy) existing.local_ccy = p.local_ccy;
     } else {
@@ -47,7 +45,6 @@ function aggregateByHolding(positions: Position[]): AggregatedHolding[] {
         quantity: Number(p.quantity ?? 0),
         price_display: px ?? null,
         mv_reporting: Number(p.mv_reporting ?? 0),
-        unrealized_gl_local: Number(p.unrealized_gl_local ?? 0),
       });
     }
   }
@@ -74,13 +71,11 @@ export default function HoldingsTable({
             <th className="px-4 py-3 text-right">Price</th>
             <th className="px-4 py-3 text-right">Value</th>
             <th className="px-4 py-3 text-right">Weight</th>
-            <th className="px-4 py-3 text-right">Unrealized G/L</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
           {top.map(h => {
             const weight = totalNav > 0 ? h.mv_reporting / totalNav : 0;
-            const gl = h.unrealized_gl_local;
             const isCash = h.asset_class === CASH_ASSET_CLASS;
             return (
               <tr key={h.key} className="hover:bg-slate-50">
@@ -100,14 +95,6 @@ export default function HoldingsTable({
                   {money(h.mv_reporting, reportingCcy)}
                 </td>
                 <td className="px-4 py-3 text-right text-slate-700">{pct(weight, 1)}</td>
-                <td
-                  className={
-                    "px-4 py-3 text-right font-medium " +
-                    (gl >= 0 ? "text-emerald-600" : "text-rose-600")
-                  }
-                >
-                  {money(gl, h.local_ccy ?? reportingCcy)}
-                </td>
               </tr>
             );
           })}
