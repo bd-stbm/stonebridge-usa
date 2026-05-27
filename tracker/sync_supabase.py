@@ -181,21 +181,35 @@ def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
     """Recompute entity_attribution from the current entity tree.
 
     The trust_alias / trust_node_id columns store the position's owning
-    "entity" — which is the first ancestor (walking leaf-to-root) that
-    matches one of:
+    "entity" — chosen via two-tier precedence walking leaf-to-root:
 
+    STRONG match (first-encountered wins, can't be overridden):
       - a shared vehicle whose group_node_id has 2+ distinct trust
         ancestors (covers both within-family sharing like Modyl LP held
         by multiple Dyne trusts, AND cross-family sharing like Dendell
         LLC held by Dyne + Markiles + Miller — each reflection
         attributes to the vehicle itself), OR
       - a trust (the default for positions held by a single trust), OR
-      - a retirement grouping (the "Dyne US Retirement" / "Markiles
-        Retirement" / "Miller Retirement" subtree under a sub-client),
-        OR
-      - the immediate child of the sub-client (the person fallback —
-        unused by default, since adding it would surface 5+ person
-        entities under Miller; not yet enabled).
+      - a "retirement" grouping (the "Dyne US Retirement" / "Markiles
+        Retirement" / "Miller Retirement" wrapper directly under a
+        sub-client).
+
+    WEAK match (recorded leaf-to-root, applied only if no strong match
+    exists anywhere in the path):
+      - a super or pension fund (substring "super" / "pension"). Covers
+        AU-style per-person funds — "Cornerstone Superannuation Fund",
+        "Suncorp Super", "Phoenix Pension Plan", "Dayan Superannuation
+        Fund" — that sit directly under a person tier without any
+        retirement wrapper above them. By making this weak, accounts
+        under "Dyne US Retirement → Australian Superannuation →
+        Bermeister Super" still attribute to "Dyne US Retirement"
+        (US's existing macro grouping is preserved), while AU accounts
+        below a super fund — which have no retirement wrapper — pick
+        up the fund itself as their entity.
+
+    Substring match is safe: tenant-wide scan as of May 2026 shows no
+    false-positive nodes ("super"/"pension"/"retirement" only appears
+    in actual retirement vehicles).
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -208,23 +222,29 @@ def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
 
     sub_clients = {nid for nid, (pid, _, _, _) in nodes.items() if pid == root_node_id}
 
-    def is_retirement_grouping(alias, name):
+    def is_retirement_wrapper(alias, name):
         # Matches the sub-client-level grouping nodes (e.g. "Dyne US
         # Retirement", "Markiles Retirement"). Sub-account aliases like
-        # "Murray Markiles Roth IRA" or "Mark Dyne Roth IRA" don't
-        # contain "retirement" and so don't match — walk skips them
-        # and picks the grouping node above instead, which is what we
-        # want as the Entity filter label.
-        return (
-            "retirement" in (alias or "").lower()
-            or "retirement" in (name or "").lower()
-        )
+        # "Murray Markiles Roth IRA" don't contain "retirement" so they
+        # don't match — walk skips them and picks the grouping node
+        # above. Strong-match tier.
+        text = f"{(alias or '').lower()} {(name or '').lower()}"
+        return "retirement" in text
+
+    def is_super_or_pension(alias, name):
+        # Matches Australian-style super and pension funds (Cornerstone
+        # Superannuation Fund, Suncorp Super, Phoenix Pension Plan,
+        # Dayan Superannuation Fund). Weak-match tier — only used when
+        # no strong match exists in the upward path.
+        text = f"{(alias or '').lower()} {(name or '').lower()}"
+        return "super" in text or "pension" in text
 
     shared_vehicle_nodes = _detect_shared_vehicle_nodes(nodes)
 
     rows = []
     for nid in nodes:
         sub_client_nid = sub_client_alias = entity_nid = entity_alias = None
+        weak_nid = weak_alias = None
         path = []
         cur_id = nid
         for _ in range(50):
@@ -235,24 +255,43 @@ def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
             if cur_id in sub_clients:
                 sub_client_nid = cur_id
                 sub_client_alias = nodes[cur_id][1] or nodes[cur_id][2]
-            # First-encountered entity wins. The walk goes leaf-to-root, so
-            # a shared vehicle directly above a Goldman account (e.g. Modyl
-            # LP) beats a higher-up trust (Mark I Dyne 2010). For accounts
-            # not under any shared vehicle, the first trust ancestor wins.
-            # Retirement groupings are checked too so IRAs / 401Ks held
-            # directly under a person (no trust between) get attributed
-            # to e.g. "Markiles Retirement" instead of NULL.
+            # Strong match: first-encountered wins. Walk goes leaf-to-
+            # root, so a shared vehicle directly above a Goldman account
+            # (e.g. Modyl LP) beats a higher-up trust (Mark I Dyne
+            # 2010). For accounts not under any shared vehicle, the
+            # first trust / retirement-wrapper ancestor wins.
             if entity_nid is None and cur_id != nid and (
                 cur_id in shared_vehicle_nodes
                 or _is_trust(alias, name)
-                or is_retirement_grouping(alias, name)
+                or is_retirement_wrapper(alias, name)
             ):
                 entity_nid = cur_id
                 entity_alias = alias or name
+            # Weak match: record the first super/pension ancestor but
+            # keep walking. If a strong match shows up higher in the
+            # path it wins; otherwise we fall back to this at the end.
+            elif (
+                entity_nid is None and weak_nid is None
+                and cur_id != nid
+                and is_super_or_pension(alias, name)
+            ):
+                weak_nid = cur_id
+                weak_alias = alias or name
             cur_id = pid
-        if entity_nid is None and _is_trust(nodes[nid][1], nodes[nid][2]):
-            entity_nid = nid
-            entity_alias = nodes[nid][1] or nodes[nid][2]
+        # No strong match in the path → fall back to super/pension if
+        # one was recorded.
+        if entity_nid is None and weak_nid is not None:
+            entity_nid = weak_nid
+            entity_alias = weak_alias
+        # Final fallback: the node itself is a trust or a super/pension
+        # fund (e.g. Suncorp Super is modelled as a leaf with no
+        # sub-accounts in the GWM tree — positions get written directly
+        # against its node_id, so it has to be its own entity).
+        if entity_nid is None:
+            self_alias, self_name = nodes[nid][1], nodes[nid][2]
+            if _is_trust(self_alias, self_name) or is_super_or_pension(self_alias, self_name):
+                entity_nid = nid
+                entity_alias = self_alias or self_name
         rows.append((nid, sub_client_nid, sub_client_alias,
                      entity_nid, entity_alias, " > ".join(reversed(path))))
 
