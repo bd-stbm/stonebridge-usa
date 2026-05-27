@@ -5,6 +5,7 @@ import clsx from "clsx";
 import type { Position } from "@/lib/queries";
 import type { HoldingsGainPieces } from "@/lib/holdings-gains";
 import { holdingsGainKey } from "@/lib/holdings-gains";
+import KpiTile from "@/components/KpiTile";
 import { PERIODS, type PeriodKey } from "@/lib/returns";
 import { money, pct, price as priceFmt } from "@/lib/format";
 
@@ -259,12 +260,24 @@ interface Props {
   positions: Position[];
   reportingCcy: string;
   periodGainsEntries: [string, HoldingsGainPieces][];
+  // Top-of-page KPI inputs. Computed server-side from the same
+  // `positions` array so we don't recompute them here, but kept as
+  // separate props so the KPI strip can render before the heavy
+  // per-row aggregation runs.
+  nav: number;
+  positionsCount: number;
+  entitiesCount: number;
+  assetClassesCount: number;
 }
 
 export default function HoldingsFullTable({
   positions,
   reportingCcy,
   periodGainsEntries,
+  nav,
+  positionsCount,
+  entitiesCount,
+  assetClassesCount,
 }: Props) {
   const [period, setPeriod] = useState<PeriodKey>("ytd");
   const [sortKey, setSortKey] = useState<SortKey>("mv_reporting");
@@ -424,6 +437,38 @@ export default function HoldingsFullTable({
 
   return (
     <div className="space-y-4">
+      {/* KPI strip — the second tile re-renders with the selected period
+          so the headline gain stays in sync with the table footer's
+          totals row. Replaces the previous "Unrealized G/L" KPI which
+          relied on Masttro's totalCost (unreliable for accounts that
+          have been rebalanced — see Cornerstone Super where it showed
+          a spurious ~AUD 14M loss). */}
+      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
+        <KpiTile label="NAV" value={money(nav, reportingCcy)} />
+        <KpiTile
+          label={`${periodLabel(period)} gain`}
+          value={
+            totals.gain_dollars != null
+              ? money(totals.gain_dollars, reportingCcy)
+              : "—"
+          }
+          tone={
+            totals.gain_dollars == null
+              ? "default"
+              : totals.gain_dollars >= 0
+                ? "positive"
+                : "negative"
+          }
+          hint={totals.gain_pct != null ? pct(totals.gain_pct, 2) : undefined}
+        />
+        <KpiTile label="Positions" value={positionsCount.toString()} />
+        <KpiTile
+          label="Asset classes"
+          value={assetClassesCount.toString()}
+          hint={`${entitiesCount} entities`}
+        />
+      </div>
+
       <div className="rounded-lg border border-slate-200 bg-white p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">

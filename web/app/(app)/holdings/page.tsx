@@ -1,5 +1,4 @@
 import HoldingsFullTable from "@/components/HoldingsFullTable";
-import KpiTile from "@/components/KpiTile";
 import {
   computeKpis,
   getHoldingsPeriodGains,
@@ -11,7 +10,6 @@ import {
   getSelectedSubClient,
   getSelectedTrusts,
 } from "@/lib/trust-filter";
-import { money } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -29,11 +27,11 @@ export default async function HoldingsPage() {
   // Router. Rebuilt back into a Map inside HoldingsFullTable.
   const periodGainsEntries = Array.from(periodGains.entries());
   const kpis = computeKpis(positions);
-  const visibleAssetClasses = new Set(
+  const visibleAssetClassesCount = new Set(
     positions
       .map(p => p.asset_class)
       .filter((c): c is string => !!c && c.length > 0),
-  );
+  ).size;
 
   return (
     <main className="mx-auto max-w-7xl px-6 py-8">
@@ -44,25 +42,14 @@ export default async function HoldingsPage() {
         </span>
       </div>
 
-      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
-        <KpiTile label="NAV" value={money(kpis.nav, kpis.reporting_ccy)} />
-        <KpiTile
-          label="Unrealized G/L"
-          value={money(kpis.unrealized_gl, kpis.reporting_ccy)}
-          tone={kpis.unrealized_gl >= 0 ? "positive" : "negative"}
-        />
-        <KpiTile label="Positions" value={kpis.positions.toString()} />
-        <KpiTile
-          label="Asset classes"
-          value={visibleAssetClasses.size.toString()}
-          hint={`${kpis.trusts} entities`}
-        />
-      </div>
-
       <HoldingsFullTable
         positions={positions}
         reportingCcy={kpis.reporting_ccy}
         periodGainsEntries={periodGainsEntries}
+        nav={kpis.nav}
+        positionsCount={kpis.positions}
+        entitiesCount={kpis.trusts}
+        assetClassesCount={visibleAssetClassesCount}
       />
     </main>
   );
