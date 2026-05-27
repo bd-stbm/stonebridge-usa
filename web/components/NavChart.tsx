@@ -12,7 +12,21 @@ import {
 import { NavPoint } from "@/lib/queries";
 import { money } from "@/lib/format";
 
-export default function NavChart({ data }: { data: NavPoint[] }) {
+interface Props {
+  data: NavPoint[];
+  reportingCcy?: string;
+}
+
+export default function NavChart({ data, reportingCcy = "USD" }: Props) {
+  // Y-axis tick formatter shows compact ($1.2M etc) — Intl.NumberFormat
+  // with notation: "compact" lets the currency code propagate through
+  // so an AUD-reporting client sees "A$1.2M" instead of "$1.2M".
+  const compact = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: reportingCcy,
+    notation: "compact",
+    maximumFractionDigits: 1,
+  });
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
       <div className="mb-2 text-sm font-medium text-slate-700">NAV over time</div>
@@ -33,11 +47,11 @@ export default function NavChart({ data }: { data: NavPoint[] }) {
             />
             <YAxis
               tick={{ fontSize: 11, fill: "#64748b" }}
-              tickFormatter={(v: number) => `$${(v / 1e6).toFixed(1)}M`}
-              width={60}
+              tickFormatter={(v: number) => compact.format(v)}
+              width={70}
             />
             <Tooltip
-              formatter={(v: number) => money(v, "USD")}
+              formatter={(v: number) => money(v, reportingCcy)}
               labelFormatter={(d: string) => d.slice(0, 10)}
             />
             <Area

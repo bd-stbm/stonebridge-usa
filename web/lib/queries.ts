@@ -28,12 +28,10 @@ const LIMIT_LARGE = 100000;
 // p_excluded_trusts to reconstructed_nav_at so 6M / 1Y returns also drop
 // them. Driven by client preference; edit here to add or remove.
 // Always hidden across every sub-client. Cross-family shared vehicles
-// (Mamidy, ECA Europe Partners) and small Masttro-tree quirks (Berdy
-// surfaced via the Dyne US Retirement → Australian Superannuation
-// subtree) that surfaced after the shared-vehicle canonical-account
-// fix (commit 67571cf). Tiny NAVs in every case; user opted to hide.
+// (Mamidy, ECA Europe Partners, Optsia) that surfaced after the shared-
+// vehicle canonical-account fix (commit 67571cf). Tiny NAVs in every
+// case; user opted to hide.
 const EXCLUDED_ENTITIES_GLOBAL: string[] = [
-  "Berdy Investment Trust",
   "Mamidy Investments LLC",
   "ECA Europe Partners",
   "Optsia Investments LLC",
@@ -41,6 +39,12 @@ const EXCLUDED_ENTITIES_GLOBAL: string[] = [
 
 const EXCLUDED_ENTITIES_BY_SUB_CLIENT: Record<string, string[]> = {
   "Dyne Family (US)": [
+    // Berdy is excluded for the US tree only — it surfaced as a small
+    // residual under the Dyne US Retirement → Australian Superannuation
+    // subtree (tiny US-side NAV, user opted to hide). The same logical
+    // entity holds a real ~AUD 1.1m position under Dyne Family (AU),
+    // so it remains visible there.
+    "Berdy Investment Trust",
     "Sibling Trust IFO Colin Dyne",
     "Sibling Trust IFO Larry Dyne",
     "Silbling Trust IFO Rozanne Bur",

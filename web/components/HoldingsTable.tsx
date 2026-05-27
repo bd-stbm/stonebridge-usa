@@ -4,6 +4,7 @@ import { money, pct, price } from "@/lib/format";
 interface Props {
   positions: Position[];
   limit?: number;
+  reportingCcy?: string;
 }
 
 interface AggregatedHolding {
@@ -11,6 +12,7 @@ interface AggregatedHolding {
   asset_name: string;
   ticker_masttro: string | null;
   asset_class: string | null;
+  local_ccy: string | null;
   quantity: number;
   price_display: number | null;
   mv_reporting: number;
@@ -34,12 +36,14 @@ function aggregateByHolding(positions: Position[]): AggregatedHolding[] {
       existing.mv_reporting += Number(p.mv_reporting ?? 0);
       existing.unrealized_gl_local += Number(p.unrealized_gl_local ?? 0);
       if (existing.price_display == null && px != null) existing.price_display = px;
+      if (existing.local_ccy == null && p.local_ccy) existing.local_ccy = p.local_ccy;
     } else {
       map.set(key, {
         key,
         asset_name: p.asset_name,
         ticker_masttro: p.ticker_masttro,
         asset_class: p.asset_class,
+        local_ccy: p.local_ccy,
         quantity: Number(p.quantity ?? 0),
         price_display: px ?? null,
         mv_reporting: Number(p.mv_reporting ?? 0),
@@ -50,7 +54,11 @@ function aggregateByHolding(positions: Position[]): AggregatedHolding[] {
   return Array.from(map.values()).sort((a, b) => b.mv_reporting - a.mv_reporting);
 }
 
-export default function HoldingsTable({ positions, limit = 10 }: Props) {
+export default function HoldingsTable({
+  positions,
+  limit = 10,
+  reportingCcy = "USD",
+}: Props) {
   const aggregated = aggregateByHolding(positions);
   const totalNav = aggregated.reduce((s, h) => s + h.mv_reporting, 0);
   const top = aggregated.slice(0, limit);
@@ -85,11 +93,11 @@ export default function HoldingsTable({ positions, limit = 10 }: Props) {
                   {isCash
                     ? "—"
                     : h.price_display != null
-                      ? price(h.price_display, "USD")
+                      ? price(h.price_display, h.local_ccy ?? reportingCcy)
                       : "—"}
                 </td>
                 <td className="px-4 py-3 text-right font-medium text-slate-900">
-                  {money(h.mv_reporting, "USD")}
+                  {money(h.mv_reporting, reportingCcy)}
                 </td>
                 <td className="px-4 py-3 text-right text-slate-700">{pct(weight, 1)}</td>
                 <td
@@ -98,7 +106,7 @@ export default function HoldingsTable({ positions, limit = 10 }: Props) {
                     (gl >= 0 ? "text-emerald-600" : "text-rose-600")
                   }
                 >
-                  {money(gl, "USD")}
+                  {money(gl, h.local_ccy ?? reportingCcy)}
                 </td>
               </tr>
             );

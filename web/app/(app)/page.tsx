@@ -178,7 +178,7 @@ export default async function OverviewPage() {
       </section>
 
       <section className="mt-8">
-        <NavChart data={chartData} />
+        <NavChart data={chartData} reportingCcy={kpis.reporting_ccy} />
       </section>
 
       <section className="mt-8">
@@ -190,7 +190,7 @@ export default async function OverviewPage() {
               ` • history NAV ${money(navFromHistory, kpis.reporting_ccy)}`}
           </span>
         </div>
-        <HoldingsTable positions={positions} limit={10} />
+        <HoldingsTable positions={positions} limit={10} reportingCcy={kpis.reporting_ccy} />
       </section>
     </main>
   );
