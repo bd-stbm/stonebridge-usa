@@ -231,14 +231,22 @@ def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
     """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT node_id, parent_node_id, alias, name, group_node_id FROM entity"
+            "SELECT node_id, parent_node_id, alias, name, group_node_id, "
+            "is_account FROM entity"
         )
+        recs = cur.fetchall()
         nodes = {
             r["node_id"]: (r["parent_node_id"], r["alias"], r["name"], r["group_node_id"])
-            for r in cur.fetchall()
+            for r in recs
         }
+        is_account_by_id = {r["node_id"]: bool(r["is_account"]) for r in recs}
 
     sub_clients = {nid for nid, (pid, _, _, _) in nodes.items() if pid == root_node_id}
+    # Person tier = direct children of a sub-client (Ronald Dyne, Adam
+    # Bermeister, Robert Capps, …). The structural fallback below treats
+    # the first non-account vehicle sitting directly beneath a person as
+    # that subtree's entity.
+    person_tier = {nid for nid, (pid, _, _, _) in nodes.items() if pid in sub_clients}
 
     def is_retirement_wrapper(alias, name):
         # Matches the sub-client-level grouping nodes (e.g. "Dyne US
@@ -263,6 +271,7 @@ def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
     for nid in nodes:
         sub_client_nid = sub_client_alias = entity_nid = entity_alias = None
         weak_nid = weak_alias = None
+        struct_nid = struct_alias = None
         path = []
         cur_id = nid
         for _ in range(50):
@@ -295,12 +304,36 @@ def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
             ):
                 weak_nid = cur_id
                 weak_alias = alias or name
+            # Structural candidate: the first NON-ACCOUNT node sitting
+            # directly below the person tier (its parent is a direct
+            # child of the sub-client). Captures holding companies and
+            # wrapper accounts that carry no trust/super/retirement name
+            # and aren't shared vehicles — e.g. "Stonebridge Management
+            # Service" / "Stonebridge Developments" under Ronald Dyne,
+            # or "Jodi Miller IRA" under Jodi Capps Miller. Includes self
+            # (so the vehicle node is its own entity), but excludes
+            # accounts so a brokerage account held directly under a
+            # person stays unattributed rather than becoming its own
+            # entity row.
+            if (
+                struct_nid is None
+                and pid in person_tier
+                and not is_account_by_id.get(cur_id, False)
+            ):
+                struct_nid = cur_id
+                struct_alias = alias or name
             cur_id = pid
         # No strong match in the path → fall back to super/pension if
         # one was recorded.
         if entity_nid is None and weak_nid is not None:
             entity_nid = weak_nid
             entity_alias = weak_alias
+        # Structural fallback: a non-account vehicle below the person
+        # tier (holding company / IRA-style wrapper) with no trust/super
+        # signal in its name.
+        if entity_nid is None and struct_nid is not None:
+            entity_nid = struct_nid
+            entity_alias = struct_alias
         # Final fallback: the node itself is a trust or a super/pension
         # fund (e.g. Suncorp Super is modelled as a leaf with no
         # sub-accounts in the GWM tree — positions get written directly
