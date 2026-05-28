@@ -153,12 +153,27 @@ export default async function PerformancePage() {
   })();
 
   const sortedMonths = Array.from(navByMonth.keys()).sort();
+  // navByMonth comes from v_nav_monthly_by_asset_class — Masttro's
+  // previous-close snapshot. For the LATEST month, substitute the
+  // yfinance-refreshed sum of current positions so the End-NAV KPI
+  // in MonthlyAttributionSection matches Overview's NAV tile (both
+  // sources scope identically: same sub_client + trusts + accounts +
+  // asset_classes). Without this, intraday market movement between
+  // Masttro's close and today's live price shows as a 5–6-figure
+  // mismatch between the two pages. The PerformanceMatrix already
+  // does this via the {endNav, endNavYesterday} override below.
+  const refreshedEndNav = sumPosition(positions, "mv_reporting");
+  const latestMonth = sortedMonths.length > 0
+    ? sortedMonths[sortedMonths.length - 1]
+    : null;
   const monthlyReturnsAll: MonthlyReturnRow[] = [];
   for (let i = 1; i < sortedMonths.length; i++) {
     const month = sortedMonths[i];
     if (month < fromMonth) continue;
     const start_nav = navByMonth.get(sortedMonths[i - 1])?.nav ?? 0;
-    const end_nav = navByMonth.get(month)?.nav ?? 0;
+    const end_nav = month === latestMonth
+      ? refreshedEndNav
+      : (navByMonth.get(month)?.nav ?? 0);
     const flows = flowsByMonth.get(month) ?? 0;
     const gain = end_nav - start_nav - flows;
     const denom = start_nav + 0.5 * flows;
