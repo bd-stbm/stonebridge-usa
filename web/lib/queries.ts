@@ -28,13 +28,16 @@ const LIMIT_LARGE = 100000;
 // p_excluded_trusts to reconstructed_nav_at so 6M / 1Y returns also drop
 // them. Driven by client preference; edit here to add or remove.
 // Always hidden across every sub-client. Cross-family shared vehicles
-// (Mamidy, ECA Europe Partners, Optsia) that surfaced after the shared-
-// vehicle canonical-account fix (commit 67571cf). Tiny NAVs in every
-// case; user opted to hide.
+// (Mamidy, ECA Europe Partners) that surfaced after the shared-vehicle
+// canonical-account fix (commit 67571cf) with sub-$25k NAVs — user
+// opted to hide as rounding-error noise. Optsia was originally in this
+// list for the same reason but turns out to hold ~$6.3M of Goldman
+// Sachs positions under Dyne (US) — re-introduced after a review
+// confirmed the per-trust slicing attributes correctly to "Optsia
+// Investments LLC" (not double-counted under the parent trusts).
 const EXCLUDED_ENTITIES_GLOBAL: string[] = [
   "Mamidy Investments LLC",
   "ECA Europe Partners",
-  "Optsia Investments LLC",
 ];
 
 const EXCLUDED_ENTITIES_BY_SUB_CLIENT: Record<string, string[]> = {
