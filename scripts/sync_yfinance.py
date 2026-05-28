@@ -55,7 +55,8 @@ def main() -> int:
             # back to Masttro's price for these by simply not pricing
             # them here. See ticker_yf clearing in commit message.
             cur.execute("""
-                SELECT DISTINCT s.security_id, s.ticker_masttro, s.ticker_yf, s.isin
+                SELECT DISTINCT s.security_id, s.ticker_masttro, s.ticker_yf,
+                                s.isin, s.local_ccy
                 FROM security s
                 WHERE s.asset_class = 'Equity'
                   AND s.security_type IS DISTINCT FROM 'Structured Products'
@@ -71,9 +72,29 @@ def main() -> int:
         isin_by_sid: dict[int, str] = {}
         for r in rows:
             sid = r["security_id"]
-            ticker = r["ticker_yf"] or r["ticker_masttro"]
+            # For non-USD-denominated listings, prefer ticker_masttro: a
+            # previously-resolved ticker_yf is likely a US OTC ADR-equivalent
+            # (BCLYF for Barclays, NSRGF for Nestle, MCQEF for Macquarie,
+            # PCI for Perpetual Credit Income Trust AU instead of US PCI),
+            # which would either round-trip the same wrong choice or fetch
+            # an illiquid OTC stale price. Masttro's ticker is closer to
+            # the local-exchange symbol and combines with the .AX/.L/etc.
+            # suffix below to find the real listing.
+            local_ccy = r["local_ccy"]
+            if local_ccy and local_ccy != "USD":
+                ticker = r["ticker_masttro"] or r["ticker_yf"]
+            else:
+                ticker = r["ticker_yf"] or r["ticker_masttro"]
             nt = normalize_ticker(ticker)
             if nt:
+                # Append the local-exchange suffix so Yahoo returns the
+                # primary listing's price, not the bare US-listed match.
+                # Limited to AUD for now — the next iteration will add
+                # GBP/EUR/HKD/CHF/JPY mappings (sweep on 2026-05-28 showed
+                # $24M of AUD overstatement vs ~$300k combined for the
+                # others, so AUD is the urgent one).
+                if local_ccy == "AUD" and "." not in nt:
+                    nt = nt + ".AX"
                 by_norm.setdefault(nt, []).append(sid)
             if r["isin"]:
                 isin_by_sid[sid] = r["isin"].strip()
