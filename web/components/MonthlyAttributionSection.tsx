@@ -51,30 +51,30 @@ export default function MonthlyAttributionSection({
     return Array.from(byId.values());
   }, [monthlyReturns, attributionByMonth]);
 
-  // KPI / meta block for the aggregated view: compound the monthly
-  // portfolio returns (chain-link), sum the monthly gains, anchor the
-  // start NAV to the first month's start and end NAV to the last
-  // month's end.
+  // KPI / meta block for the aggregated view: single-window Modified
+  // Dietz over the full bar-chart range. Matches the rest of the
+  // dashboard (Overview Returns tile, PerformanceMatrix) so the "Last
+  // 12M" KPI here reconciles with the 12M cell in the entity matrix
+  // and the 12M tile on Overview. Previously this compounded monthly
+  // returns (chain-linked TWR), which diverged by ~0.5-1pp on entities
+  // with meaningful cash flows (e.g. Optsia, with $2.5M of 12M
+  // withdrawals).
   const aggregatedMeta = useMemo(() => {
     if (monthlyReturns.length === 0) return null;
     const first = monthlyReturns[0];
     const last = monthlyReturns[monthlyReturns.length - 1];
-    let cumulative = 1;
-    let totalGain = 0;
-    let anyReturn = false;
-    for (const m of monthlyReturns) {
-      if (m.return_pct != null) {
-        cumulative *= 1 + m.return_pct;
-        anyReturn = true;
-      }
-      if (m.gain != null) totalGain += m.gain;
-    }
+    const startNav = first.start_nav ?? 0;
+    const endNav = last.end_nav ?? 0;
+    const totalFlows = monthlyReturns.reduce((s, m) => s + (m.flows ?? 0), 0);
+    const gain = endNav - startNav - totalFlows;
+    const denom = startNav + 0.5 * totalFlows;
+    const return_pct = denom > 0 ? gain / denom : null;
     return {
       label: `Last ${monthlyReturns.length}M`,
-      start_nav: first.start_nav,
-      end_nav: last.end_nav,
-      gain: totalGain,
-      return_pct: anyReturn ? cumulative - 1 : null,
+      start_nav: startNav,
+      end_nav: endNav,
+      gain,
+      return_pct,
     };
   }, [monthlyReturns]);
 
