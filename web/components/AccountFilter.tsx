@@ -62,27 +62,33 @@ export default function AccountFilter({ accounts, currentAccounts }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, selection, currentAccounts]);
 
-  const toggle = (id: string) => {
+  // Each AccountOption represents one physical custody account backed by
+  // 1..N reflection node_ids. Toggle flips the whole group on/off in the
+  // cookie set so downstream filters (.in("account_node_id", ...)) include
+  // every slice.
+  const toggle = (nodeIds: string[]) => {
     setSelection(prev => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      const allOn = nodeIds.every(id => next.has(id));
+      if (allOn) for (const id of nodeIds) next.delete(id);
+      else for (const id of nodeIds) next.add(id);
       return next;
     });
   };
 
   const clearAll = () => setSelection(new Set());
 
-  const currentAccount =
-    currentAccounts.length === 1
-      ? accounts.find(a => a.node_id === currentAccounts[0])
-      : null;
+  const fullyCovered = (opt: { node_ids: string[] }, cookie: string[]) => {
+    const set = new Set(cookie);
+    return opt.node_ids.length > 0 && opt.node_ids.every(id => set.has(id));
+  };
+  const selectedAccounts = accounts.filter(a => fullyCovered(a, currentAccounts));
   const label =
     currentAccounts.length === 0
       ? "All accounts"
-      : currentAccount
-        ? currentAccount.alias
-        : `${currentAccounts.length} accounts`;
+      : selectedAccounts.length === 1
+        ? selectedAccounts[0].alias
+        : `${selectedAccounts.length || currentAccounts.length} accounts`;
 
   return (
     <div ref={ref} className="relative">
@@ -123,25 +129,32 @@ export default function AccountFilter({ accounts, currentAccounts }: Props) {
               <span className="font-medium">All accounts</span>
             </label>
             <div className="my-1 border-t border-slate-100" />
-            {accounts.map(a => (
-              <label
-                key={a.node_id}
-                className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
-              >
-                <input
-                  type="checkbox"
-                  checked={selection.has(a.node_id)}
-                  onChange={() => toggle(a.node_id)}
-                  className="h-3.5 w-3.5"
-                />
-                <span className="min-w-0 flex-1 truncate">
-                  {a.alias}
-                  {a.custodian ? (
-                    <span className="ml-1 text-slate-400">· {a.custodian}</span>
-                  ) : null}
-                </span>
-              </label>
-            ))}
+            {accounts.map(a => {
+              const allOn = a.node_ids.every(id => selection.has(id));
+              const someOn = !allOn && a.node_ids.some(id => selection.has(id));
+              return (
+                <label
+                  key={a.key}
+                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+                >
+                  <input
+                    type="checkbox"
+                    checked={allOn}
+                    ref={el => {
+                      if (el) el.indeterminate = someOn;
+                    }}
+                    onChange={() => toggle(a.node_ids)}
+                    className="h-3.5 w-3.5"
+                  />
+                  <span className="min-w-0 flex-1 truncate">
+                    {a.alias}
+                    {a.custodian ? (
+                      <span className="ml-1 text-slate-400">· {a.custodian}</span>
+                    ) : null}
+                  </span>
+                </label>
+              );
+            })}
           </div>
           <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-2 py-2">
             <button

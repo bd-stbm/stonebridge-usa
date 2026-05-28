@@ -56,13 +56,20 @@ export default async function Header() {
   ]);
 
   const trustCrumb = summarise("entities", currentTrusts);
-  const accountSelected =
-    currentAccounts.length === 1
-      ? accounts.find(a => a.node_id === currentAccounts[0])?.alias ?? currentAccounts[0]
-      : null;
+  // accounts in the dropdown are aggregated by physical custody account
+  // (1..N reflection node_ids per row). The cookie still holds the
+  // underlying node_ids — count breadcrumbs by fully-covered logical
+  // accounts so the user sees "1 account" rather than "15 accounts".
+  const cookieSet = new Set(currentAccounts);
+  const fullyCoveredAccounts = accounts.filter(
+    a => a.node_ids.length > 0 && a.node_ids.every(id => cookieSet.has(id)),
+  );
   const accountCrumb =
-    accountSelected ??
-    (currentAccounts.length > 1 ? `${currentAccounts.length} accounts` : null);
+    currentAccounts.length === 0
+      ? null
+      : fullyCoveredAccounts.length === 1
+        ? fullyCoveredAccounts[0].alias
+        : `${fullyCoveredAccounts.length || currentAccounts.length} accounts`;
 
   return (
     <header className="border-b border-slate-200 bg-white">

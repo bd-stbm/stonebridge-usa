@@ -239,10 +239,19 @@ export async function listAssetClasses(
 }
 
 export interface AccountOption {
-  node_id: string;
+  // Stable identity for React keys / dedup. The lowest-sorted underlying
+  // node_id in the group (deterministic, no extra meaning).
+  key: string;
+  // Every account_node_id that backs this physical custody account.
+  // Pushed into the account_filter cookie as a single unit when the
+  // user toggles the row — see AccountFilter.tsx.
+  node_ids: string[];
   alias: string;
   custodian: string | null;
-  trust_alias: string | null;
+  // Entities (trust_aliases) the underlying reflections roll up to.
+  // Usually one when the dropdown is already entity-scoped; can be
+  // several when no entity filter is active.
+  trust_aliases: string[];
 }
 
 export async function listAccounts(
@@ -250,12 +259,23 @@ export async function listAccounts(
   trusts: string[] = [],
 ): Promise<AccountOption[]> {
   return timed(`listAccounts(${trusts.length}t)`, async () => {
-    // Source from v_latest_positions so we only get accounts that actually
-    // hold positions in the latest snapshot. Multiple rows per account get
-    // deduped in JS.
+    // Source from v_latest_positions so we only get accounts that
+    // actually hold positions in the latest snapshot. The same physical
+    // custody account often appears under many account_node_ids — once
+    // per ownership branch (principal × holding structure) — each
+    // carrying a pro-rata slice of the underlying value. Sum across
+    // reflections = true account NAV (per-trust slicing is correct in
+    // tracker/sync_supabase.py); duplicating the row in the dropdown is
+    // pure UI noise. Group here by (bank_broker, account_number) so
+    // the user picks one logical account; the cookie still stores the
+    // full set of node_ids so downstream .in("account_node_id", ...)
+    // queries continue to sum every slice correctly.
     let q = getSupabaseServer()
       .from("v_latest_positions")
-      .select("account_node_id, account_alias, custodian, trust_alias")
+      .select(
+        "account_node_id, account_alias, custodian, trust_alias, " +
+          "account_number",
+      )
       .eq("sub_client_alias", subClient);
     if (trusts.length) q = q.in("trust_alias", trusts);
     const excluded = excludedEntities(subClient);
@@ -267,17 +287,44 @@ export async function listAccounts(
       account_alias: string | null;
       custodian: string | null;
       trust_alias: string | null;
+      account_number: string | null;
     }>;
-    const seen = new Set<string>();
-    const accounts: AccountOption[] = [];
+    // Group by physical custody identity. Accounts missing both
+    // custodian and account_number fall back to the node_id itself so
+    // they appear as their own row rather than getting bucketed together.
+    const groups = new Map<string, {
+      node_ids: Set<string>;
+      alias: string;
+      custodian: string | null;
+      trust_aliases: Set<string>;
+    }>();
     for (const r of rows) {
-      if (seen.has(r.account_node_id)) continue;
-      seen.add(r.account_node_id);
+      const physicalKey =
+        r.custodian && r.account_number
+          ? `${r.custodian}|${r.account_number}`
+          : `node:${r.account_node_id}`;
+      let g = groups.get(physicalKey);
+      if (!g) {
+        g = {
+          node_ids: new Set(),
+          alias: r.account_alias ?? r.account_node_id,
+          custodian: r.custodian,
+          trust_aliases: new Set(),
+        };
+        groups.set(physicalKey, g);
+      }
+      g.node_ids.add(r.account_node_id);
+      if (r.trust_alias) g.trust_aliases.add(r.trust_alias);
+    }
+    const accounts: AccountOption[] = [];
+    for (const g of groups.values()) {
+      const node_ids = [...g.node_ids].sort();
       accounts.push({
-        node_id: r.account_node_id,
-        alias: r.account_alias ?? r.account_node_id,
-        custodian: r.custodian,
-        trust_alias: r.trust_alias,
+        key: node_ids[0],
+        node_ids,
+        alias: g.alias,
+        custodian: g.custodian,
+        trust_aliases: [...g.trust_aliases].sort(),
       });
     }
     return accounts.sort((a, b) => a.alias.localeCompare(b.alias));
