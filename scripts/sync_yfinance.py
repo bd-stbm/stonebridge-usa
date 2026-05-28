@@ -12,6 +12,7 @@ Env: SUPABASE_DB_URL.
 from __future__ import annotations
 
 import datetime as dt
+import re
 import sys
 import warnings
 from pathlib import Path
@@ -24,6 +25,60 @@ from tracker.enrich import _fetch_yf, _openfigi_resolve, normalize_ticker
 from tracker.sync_indices import sync_indices_recent
 from tracker.sync_security_prices import sync_security_prices_recent
 from tracker.sync_supabase import insert_pricing_refresh, set_security_ticker_yf
+
+
+_MASTTRO_EXCHANGE_TAG_RE = re.compile(
+    r"_(US|AU|LN|GB|FR|DE|GR|EU|JP|CA|HK|CH|NL|ES|IT)$", re.IGNORECASE,
+)
+
+
+def yfinance_lookup_ticker(ticker_masttro: str | None, local_ccy: str | None) -> str | None:
+    """Convert a Masttro ticker + currency to a Yahoo Finance symbol.
+
+    The bare ticker from Masttro almost always resolves to a US OTC
+    ADR-equivalent on Yahoo (BCLYF for Barclays, MCQEF for Macquarie,
+    NSRGF for Nestle, PCI = US PIMCO Dynamic Credit Fund instead of AU
+    Perpetual Credit Income Trust), with illiquid stale prices. Append
+    the local-exchange suffix so Yahoo returns the primary listing.
+
+    Quirks handled:
+      - HK: stock codes get zero-padded to 4 digits (700 -> 0700.HK).
+      - JP: Masttro tags some tickers with trailing "je" (7011je for
+        Mitsubishi Heavy Industries) -- strip to leading digits.
+      - GBP: Masttro uses "BP/" for BP plc on LSE -- strip the slash
+        (Yahoo wants "BP.L").
+      - EUR: home exchange varies (DE/PA/AS/MC). Default to .DE; for
+        Paris-/Amsterdam-/Madrid-listed names that aren't cross-listed
+        on Frankfurt the lookup will fail and the sync will skip them
+        (dashboard falls back to Masttro's price, which is the right
+        behaviour given EUR damage was ~$116k vs $24M for AUD).
+      - Already-suffixed tickers ("AENA.MC") are trusted as-is.
+    """
+    if not ticker_masttro:
+        return None
+    t = ticker_masttro.strip().upper()
+    t = _MASTTRO_EXCHANGE_TAG_RE.sub("", t)
+    if not t:
+        return None
+    if "." in t:
+        return t
+    if not local_ccy or local_ccy == "USD":
+        return t.replace("/", "-")
+    if local_ccy == "AUD":
+        return t + ".AX"
+    if local_ccy == "GBP":
+        return t.replace("/", "") + ".L"
+    if local_ccy == "CHF":
+        return t + ".SW"
+    if local_ccy == "HKD":
+        m = re.match(r"^(\d+)", t)
+        return (m.group(1).zfill(4) + ".HK") if m else t
+    if local_ccy == "JPY":
+        m = re.match(r"^(\d+)", t)
+        return (m.group(1) + ".T") if m else t
+    if local_ccy == "EUR":
+        return t + ".DE"
+    return t
 
 
 def main() -> int:
@@ -72,29 +127,20 @@ def main() -> int:
         isin_by_sid: dict[int, str] = {}
         for r in rows:
             sid = r["security_id"]
-            # For non-USD-denominated listings, prefer ticker_masttro: a
-            # previously-resolved ticker_yf is likely a US OTC ADR-equivalent
-            # (BCLYF for Barclays, NSRGF for Nestle, MCQEF for Macquarie,
-            # PCI for Perpetual Credit Income Trust AU instead of US PCI),
-            # which would either round-trip the same wrong choice or fetch
-            # an illiquid OTC stale price. Masttro's ticker is closer to
-            # the local-exchange symbol and combines with the .AX/.L/etc.
-            # suffix below to find the real listing.
             local_ccy = r["local_ccy"]
+            # Non-USD: build the Yahoo symbol from ticker_masttro via
+            # yfinance_lookup_ticker (handles per-exchange suffixes and
+            # Masttro's per-market quirks). A pre-existing ticker_yf is
+            # likely a US OTC ADR-equivalent and not worth re-trying.
+            # USD: keep the original path (ticker_yf if previously
+            # resolved, else ticker_masttro, then normalize_ticker).
             if local_ccy and local_ccy != "USD":
-                ticker = r["ticker_masttro"] or r["ticker_yf"]
+                nt = yfinance_lookup_ticker(
+                    r["ticker_masttro"] or r["ticker_yf"], local_ccy,
+                )
             else:
-                ticker = r["ticker_yf"] or r["ticker_masttro"]
-            nt = normalize_ticker(ticker)
+                nt = normalize_ticker(r["ticker_yf"] or r["ticker_masttro"])
             if nt:
-                # Append the local-exchange suffix so Yahoo returns the
-                # primary listing's price, not the bare US-listed match.
-                # Limited to AUD for now — the next iteration will add
-                # GBP/EUR/HKD/CHF/JPY mappings (sweep on 2026-05-28 showed
-                # $24M of AUD overstatement vs ~$300k combined for the
-                # others, so AUD is the urgent one).
-                if local_ccy == "AUD" and "." not in nt:
-                    nt = nt + ".AX"
                 by_norm.setdefault(nt, []).append(sid)
             if r["isin"]:
                 isin_by_sid[sid] = r["isin"].strip()
