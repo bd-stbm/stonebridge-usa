@@ -8,7 +8,6 @@ import {
   getLatestPositions,
   getMonthlySecurityAttribution,
   getNavSeries,
-  getNavSeriesByAssetClass,
   getNavSeriesByTrust,
   getPeriodReturns,
   listIndices,
@@ -91,7 +90,6 @@ export default async function PerformancePage() {
     positions,
     navSeries,
     navByTrust,
-    navByClass,
     indices,
     returns,
     attribution,
@@ -99,7 +97,6 @@ export default async function PerformancePage() {
     getLatestPositions(subClient, trusts, accounts, assetClasses),
     getNavSeries(subClient, trusts, accounts, assetClasses),
     getNavSeriesByTrust(subClient, trusts, accounts, assetClasses),
-    getNavSeriesByAssetClass(subClient, trusts, accounts, assetClasses),
     listIndices(),
     getPeriodReturns(subClient, trusts, accounts, assetClasses, {}),
     getMonthlySecurityAttribution(subClient, trusts, accounts, assetClasses, fromMonth),
@@ -217,23 +214,7 @@ export default async function PerformancePage() {
     trustNav[trustAlias] = endNav;
   }
 
-  // --- Asset-class matrix --------------------------------------------------
-  const positionsByClass = groupBy(positions, p => p.asset_class ?? "Unclassified");
-  const classReturns: Record<string, Record<PeriodKey, PeriodReturn>> = {};
-  const classNav: Record<string, number> = {};
-  for (const [className, navs] of Object.entries(navByClass)) {
-    const cp = positionsByClass.get(className) ?? [];
-    const endNav = sumPosition(cp, "mv_reporting");
-    const endNavYesterday = sumPosition(cp, "mv_reporting_yesterday");
-    classReturns[className] = computeAllPeriodReturns(
-      navs.map(n => ({ date: n.snapshot_date, nav: n.nav })),
-      flowsByClass[className] ?? [],
-      { endNav, endNavYesterday },
-    );
-    classNav[className] = endNav;
-  }
-
-  // Index returns for the matrices' benchmark row.
+  // Index returns for the matrix's benchmark row.
   const indexReturns = computeIndexReturnsForAllPeriods(indexPrices, returns);
 
   const reportingCcy = positions[0]?.reporting_ccy ?? "USD";
@@ -274,15 +255,6 @@ export default async function PerformancePage() {
         rowLabel="Entity"
         returns={trustReturns}
         navAtToday={trustNav}
-        indexReturns={indexReturns}
-        benchmarkLabel={benchmark?.ticker}
-      />
-
-      <PerformanceMatrix
-        title="Returns by asset class"
-        rowLabel="Asset class"
-        returns={classReturns}
-        navAtToday={classNav}
         indexReturns={indexReturns}
         benchmarkLabel={benchmark?.ticker}
       />

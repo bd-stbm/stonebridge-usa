@@ -56,7 +56,7 @@ tracker/sync_supabase.py  ──UPSERT──▶  Supabase Postgres
 |---|---|---|
 | `/` | NAV + 1D/MTD/YTD/6M/12M returns with benchmark + asset-class split, NAV-over-time chart, top holdings. | `v_positions_refreshed`, `v_nav_monthly_by_account`, `v_nav_monthly_by_asset_class`, `index_price_history`, `reconstructed_nav_at` (RPC) |
 | `/holdings` | Sortable/filterable table of every current position. Search + asset-class + custodian filters in-page (Trust + Account come from header). | `v_positions_refreshed` |
-| `/performance` | Rebased portfolio-vs-benchmark line chart, returns-by-trust matrix, returns-by-asset-class matrix. | `v_nav_monthly_by_account`, `v_nav_monthly_by_asset_class`, `v_external_flows`, `index_price_history` |
+| `/performance` | Rebased portfolio-vs-benchmark line chart, returns-by-trust matrix. | `v_nav_monthly_by_account`, `v_external_flows`, `index_price_history` |
 | `/income` | TTM/YTD income KPIs, monthly bar (Dividends/Interest/Other), top payers, by-trust. | `v_income_monthly` |
 | `/transactions` | Every transaction with category chip, date range, search, type filter. | `v_transactions` |
 | `/login` | Email/password form. Middleware redirects unauthenticated users here. | (Supabase Auth) |
@@ -86,7 +86,7 @@ components/Header.tsx           — logo + nav + filters bar + UserMenu.
 components/TrustFilter.tsx      — multi-select popover.
 components/AccountFilter.tsx    — multi-select popover, cascades on trust.
 components/ReturnsTile.tsx      — period buttons + benchmark + asset-class.
-components/PerformanceMatrix.tsx — trust / asset-class matrix table.
+components/PerformanceMatrix.tsx — entity (trust) matrix table.
 components/RebasedChart.tsx     — portfolio + benchmark, both rebased to 100.
 components/HoldingsFullTable.tsx — Holdings page table.
 components/TransactionsTable.tsx — Transactions page table.
