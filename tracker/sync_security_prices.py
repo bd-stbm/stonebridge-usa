@@ -40,10 +40,16 @@ def _tracked_tickers(conn) -> list[str]:
     matched any historical holding — that inflated daily request volume
     well past Yahoo's rate-limit threshold."""
     with conn.cursor() as cur:
+        # Skip Structured Products — equity-linked notes have the same
+        # bond-style face-value pricing problem covered in scripts/
+        # sync_yfinance.py. Clearing ticker_yf on those rows belt-and-
+        # braces; this filter prevents re-introduction if the column is
+        # ever re-populated.
         cur.execute(
             """SELECT DISTINCT s.ticker_yf
                FROM security s
                WHERE s.ticker_yf IS NOT NULL
+                 AND s.security_type IS DISTINCT FROM 'Structured Products'
                  AND EXISTS (
                      SELECT 1 FROM v_latest_positions lp
                      WHERE lp.security_id = s.security_id

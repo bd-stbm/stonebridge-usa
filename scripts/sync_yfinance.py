@@ -43,10 +43,22 @@ def main() -> int:
             # per-account "latest snapshot" filter the dashboard reads
             # from, so the universe here now matches what the holdings
             # table actually needs prices for.
+            # Exclude Structured Products: Masttro tags equity-linked
+            # structured notes (e.g. "BNS 0 08/06/27") as asset_class
+            # 'Equity' but they trade like bonds — quantity is face
+            # value, price is per $100. yfinance returns the equity
+            # ticker's per-share price, which the refresh layer then
+            # multiplies against face-value quantities → wildly wrong
+            # NAVs (sweep on 2026-05-28 found 11 such securities,
+            # net +$692k overstatement on Dyne (US), with one Optsia
+            # BNS bond alone underwater by $895k vs Masttro). Fall
+            # back to Masttro's price for these by simply not pricing
+            # them here. See ticker_yf clearing in commit message.
             cur.execute("""
                 SELECT DISTINCT s.security_id, s.ticker_masttro, s.ticker_yf, s.isin
                 FROM security s
                 WHERE s.asset_class = 'Equity'
+                  AND s.security_type IS DISTINCT FROM 'Structured Products'
                   AND EXISTS (
                       SELECT 1 FROM v_latest_positions lp
                       WHERE lp.security_id = s.security_id
