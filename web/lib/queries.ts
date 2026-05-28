@@ -443,9 +443,15 @@ export async function getHoldingsPeriodGains(
       const sixMStart = computePeriodStart("6m", endDate);
       const oneYStart = computePeriodStart("1y", endDate);
 
-      const { data, error } = await getSupabaseServer().rpc(
-        "holdings_period_attribution",
-        {
+      // .limit(LIMIT_LARGE) is REQUIRED: this RPC returns one row per
+      // (period × account × security) — ~25k rows for an all-entities
+      // Dyne (US) pull. Without an explicit limit PostgREST applies its
+      // default cap and silently truncates, so holdings beyond the cap
+      // come back with no gain attribution (blank $ / % on the table).
+      // NB: this only takes full effect once the project's db-max-rows
+      // is >= the row count — see the Supabase "Max rows" runbook note.
+      const { data, error } = await getSupabaseServer()
+        .rpc("holdings_period_attribution", {
           p_sub_client:      subClient,
           p_trusts:          trusts.length ? trusts : null,
           p_accounts:        accounts.length ? accounts : null,
@@ -456,8 +462,8 @@ export async function getHoldingsPeriodGains(
           p_ytd_start:       ytdStart,
           p_six_m_start:     sixMStart,
           p_one_y_start:     oneYStart,
-        },
-      );
+        })
+        .limit(LIMIT_LARGE);
       if (error) throw error;
       const rows = (data ?? []) as unknown as Array<{
         period: HoldingsPeriodKey;
