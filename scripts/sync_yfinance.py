@@ -17,6 +17,8 @@ import sys
 import warnings
 from pathlib import Path
 
+import yfinance as yf
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 warnings.filterwarnings("ignore")
 
@@ -25,6 +27,7 @@ from tracker.enrich import _fetch_yf, _openfigi_resolve, normalize_ticker
 from tracker.sync_indices import sync_indices_recent
 from tracker.sync_security_prices import sync_security_prices_recent
 from tracker.sync_supabase import insert_pricing_refresh, set_security_ticker_yf
+from tracker.yf_retry import with_yf_retry
 
 
 _MASTTRO_EXCHANGE_TAG_RE = re.compile(
@@ -79,6 +82,26 @@ def yfinance_lookup_ticker(ticker_masttro: str | None, local_ccy: str | None) ->
     if local_ccy == "EUR":
         return t + ".DE"
     return t
+
+
+def _is_pence_quote(ticker: str) -> bool:
+    """True when Yahoo quotes `ticker` in GBp (pence) rather than GBP.
+
+    LSE (.L) equities are quoted by Yahoo in pence, but Masttro's
+    price_local is in pounds. v_positions_refreshed scales mv_reporting by
+    (yf_price / price_local), so a pence price against a pounds base
+    inflates every GBP holding ~100x. We confirm via Yahoo's own quote
+    currency rather than blindly dividing every .L ticker, since a few
+    LSE-listed ETFs/DRs are genuinely quoted in GBP or USD (e.g. CSPX.L).
+    """
+    try:
+        ccy = with_yf_retry(
+            f"currency {ticker}",
+            lambda t=ticker: yf.Ticker(t).fast_info.get("currency"),
+        )
+    except Exception:
+        ccy = None
+    return ccy == "GBp"
 
 
 def main() -> int:
@@ -182,6 +205,25 @@ def main() -> int:
                 for nt in extra:
                     ticker_source[nt] = "openfigi"
                 prices.update(extra)
+
+        # Normalise GBp (pence) LSE quotes to GBP (pounds). Yahoo returns
+        # .L closes in pence; Masttro's price_local is in pounds, so the
+        # v_positions_refreshed price/price_local ratio would otherwise
+        # over-state every GBP holding ~100x. Only divide tickers Yahoo
+        # actually reports as GBp-quoted.
+        pence_tickers = {
+            tk for tk in prices if tk.endswith(".L") and _is_pence_quote(tk)
+        }
+        for tk in pence_tickers:
+            price, asof, price_prev, asof_prev = prices[tk]
+            prices[tk] = (
+                price / 100.0,
+                asof,
+                (price_prev / 100.0) if price_prev is not None else None,
+                asof_prev,
+            )
+        if pence_tickers:
+            print(f"  GBp->GBP pence adjustment applied to {len(pence_tickers)} LSE tickers")
 
         # Persist resolved ticker_yf on the security rows.
         sec_updates = []
