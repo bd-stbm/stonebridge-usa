@@ -22,6 +22,13 @@ export { DEFAULT_SUB_CLIENT };
 // at the server's cap.
 const LIMIT_LARGE = 100000;
 
+// Earliest month the NAV-over-time series is shown from. Some entities
+// (e.g. the AU direct-equity nodes folded into IBKR) carry month-end
+// history back to 2021–22, which stretches the chart x-axis across a long,
+// near-empty tail. Floor the series here for a consistent, readable start;
+// entities whose data begins later simply start later.
+const NAV_HISTORY_FLOOR = "2024-06-01";
+
 // Entities (trusts / shared vehicles) to hide from the dashboard per sub
 // client. Excluded entries don't appear in the Entity filter dropdown, get
 // stripped out of every scoped query's WHERE clause, and are passed as
@@ -514,7 +521,8 @@ export async function getNavSeries(
       .from("v_nav_monthly_by_asset_class")
       .select("snapshot_date, nav_reporting")
       .eq("sub_client_alias", subClient)
-      .in("asset_class", effective);
+      .in("asset_class", effective)
+      .gte("snapshot_date", NAV_HISTORY_FLOOR);
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
     if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
