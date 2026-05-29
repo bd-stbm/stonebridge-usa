@@ -282,6 +282,10 @@ export default function HoldingsFullTable({
   const [period, setPeriod] = useState<PeriodKey>("ytd");
   const [sortKey, setSortKey] = useState<SortKey>("mv_reporting");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  // Hide closed/exited positions (e.g. a sold-out holding lingering at
+  // qty 0 in the latest snapshot). Both quantity and value zero = closed;
+  // cash has null quantity (→ 0) but non-zero value, so it stays.
+  const [openOnly, setOpenOnly] = useState(true);
 
   // Rehydrate the server-serialised entries into a Map once. The page
   // component sends an array of [key, value] tuples across the RSC
@@ -301,17 +305,28 @@ export default function HoldingsFullTable({
     [positions],
   );
 
+  // Closed positions = both quantity and value zero. Cash keeps its
+  // value so it survives the filter.
+  const visibleHoldings = useMemo(
+    () =>
+      openOnly
+        ? holdings.filter(h => h.quantity !== 0 || h.mv_reporting !== 0)
+        : holdings,
+    [holdings, openOnly],
+  );
+  const hiddenCount = holdings.length - visibleHoldings.length;
+
   // Per-row gain pieces for the currently-selected period. Computed
   // once per (holdings, period) combination so the sort / render /
   // totals loops below don't recompute it three times.
   const rowGains = useMemo(() => {
     const map = new Map<Holding, RowGain>();
-    for (const h of holdings) map.set(h, rowGain(h, period, periodGains));
+    for (const h of visibleHoldings) map.set(h, rowGain(h, period, periodGains));
     return map;
-  }, [holdings, period, periodGains]);
+  }, [visibleHoldings, period, periodGains]);
 
   const sorted = useMemo(() => {
-    const arr = holdings.slice();
+    const arr = visibleHoldings.slice();
     arr.sort((a, b) => {
       if (sortKey === "weight") {
         const wa = totalNav > 0 ? a.mv_reporting / totalNav : 0;
@@ -343,7 +358,7 @@ export default function HoldingsFullTable({
       return compareValues(a[sortKey], b[sortKey], sortDir);
     });
     return arr;
-  }, [holdings, sortKey, sortDir, totalNav, rowGains]);
+  }, [visibleHoldings, sortKey, sortDir, totalNav, rowGains]);
 
   // Aggregate Modified Dietz across the visible (post-aggregation)
   // rows. Rows where the period gain isn't available (e.g. 1D for a
@@ -356,7 +371,7 @@ export default function HoldingsFullTable({
     let flows = 0;
     let income = 0;
     let any = false;
-    for (const h of holdings) {
+    for (const h of visibleHoldings) {
       const g = rowGains.get(h);
       if (!g || !g.available) continue;
       startMv += g.start_mv;
@@ -377,7 +392,7 @@ export default function HoldingsFullTable({
       gain_dollars: gainDollars,
       gain_pct: denom !== 0 ? gainDollars / denom : null,
     };
-  }, [holdings, rowGains]);
+  }, [visibleHoldings, rowGains]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -495,15 +510,29 @@ export default function HoldingsFullTable({
           </div>
           <div className="flex items-center gap-3 text-xs text-slate-500">
             <span>
-              <span className="font-medium text-slate-700">{holdings.length}</span>{" "}
-              {holdings.length === 1 ? "holding" : "holdings"} across{" "}
-              <span className="font-medium text-slate-700">{positions.length}</span>{" "}
-              account positions
+              <span className="font-medium text-slate-700">{visibleHoldings.length}</span>{" "}
+              {visibleHoldings.length === 1 ? "holding" : "holdings"}
+              {openOnly && hiddenCount > 0 ? (
+                <span className="text-slate-400"> ({hiddenCount} closed hidden)</span>
+              ) : null}
               {" · "}
               <span className="font-medium text-slate-700">
                 {money(totalNav, reportingCcy)}
               </span>
             </span>
+            <button
+              type="button"
+              onClick={() => setOpenOnly(v => !v)}
+              className={clsx(
+                "rounded border px-2.5 py-1 text-xs font-medium",
+                openOnly
+                  ? "border-brand bg-brand text-white"
+                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
+              )}
+              aria-pressed={openOnly}
+            >
+              Open positions only
+            </button>
             <button
               type="button"
               onClick={handleExportCsv}
@@ -630,7 +659,7 @@ export default function HoldingsFullTable({
             <tfoot className="bg-slate-50 text-sm">
               <tr className="border-t border-slate-200">
                 <td colSpan={4} className="px-4 py-3 text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Totals ({holdings.length} {holdings.length === 1 ? "holding" : "holdings"})
+                  Totals ({visibleHoldings.length} {visibleHoldings.length === 1 ? "holding" : "holdings"})
                 </td>
                 <td className="px-4 py-3" />
                 <td className="px-4 py-3" />
