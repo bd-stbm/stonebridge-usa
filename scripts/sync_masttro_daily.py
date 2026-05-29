@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from client import MasttroClient
 from tracker.db import connect, log_sync
 from tracker.families import FAMILIES
+from tracker.node_remap import apply_node_remap
 from tracker.sync_supabase import (
     canonical_accounts_under,
     upsert_positions,
@@ -72,6 +73,13 @@ def main() -> int:
                 f"Transactions/{client_id}", txns,
                 descriptor=f"daily_{family_node}_{ccy.lower()}_{yyyymm_now}_p1",
             )
+
+            # Fold AU broker-migration direct-equity nodes into their IBKR
+            # account so they show as holdings, not separate accounts. No-op
+            # for every other family/node. Applied to the in-memory payload
+            # only (the raw response saved above is untouched).
+            apply_node_remap(holdings)
+            apply_node_remap(txns)
 
             feeds = masttro.get(
                 f"DataFeedUpdates/{client_id}",
