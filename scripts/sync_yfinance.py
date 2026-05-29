@@ -132,11 +132,18 @@ def main() -> int:
             # BNS bond alone underwater by $895k vs Masttro). Fall
             # back to Masttro's price for these by simply not pricing
             # them here. See ticker_yf clearing in commit message.
+            # Commodities are included alongside Equity: the held set is
+            # liquid public gold/silver ETFs (GLD, GOLD.AX, ETPMAG.AX,
+            # GS commodity-strategy funds) that price cleanly on yfinance
+            # at ratio ~1.0 vs Masttro's local price. Without this they
+            # carried no ticker_yf and showed Masttro's stale month-end
+            # NAV. Private alternatives / crypto / mixed-allocation stay
+            # excluded — no reliable public price.
             cur.execute("""
                 SELECT DISTINCT s.security_id, s.ticker_masttro, s.ticker_yf,
                                 s.isin, s.local_ccy
                 FROM security s
-                WHERE s.asset_class = 'Equity'
+                WHERE s.asset_class IN ('Equity', 'Commodities')
                   AND s.security_type IS DISTINCT FROM 'Structured Products'
                   AND EXISTS (
                       SELECT 1 FROM v_latest_positions lp

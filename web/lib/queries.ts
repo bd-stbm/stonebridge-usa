@@ -89,6 +89,7 @@ const VISIBLE_ASSET_CLASSES: readonly string[] = [
   "Equity",
   "Fixed Income",
   "Cash and Equivalents",
+  "Commodities",
 ];
 
 // Resolve a raw user asset-class selection into the list to push
