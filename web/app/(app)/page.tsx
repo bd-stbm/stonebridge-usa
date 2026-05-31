@@ -125,20 +125,24 @@ export default async function OverviewPage() {
   })();
 
   // Bump the chart's rightmost point to the refreshed NAV so the line lands
-  // on the same number as the NAV tile (which is yfinance-priced). If the
-  // latest Masttro snapshot is before today, append a new point for today;
-  // if it's today already, overwrite that point's value.
+  // on the same number as the NAV tile (which is yfinance-priced). Compare by
+  // calendar month, not exact date, to keep one point per month: if the latest
+  // monthly point is already in the current month, overwrite it with the
+  // refreshed NAV; only append a fresh point when the latest belongs to an
+  // earlier month. (Comparing exact dates appended a second current-month point
+  // whenever the latest Masttro snapshot fell earlier in the same month.)
   const todayIso = today.toISOString().slice(0, 10);
+  const todayMonth = todayIso.slice(0, 7);
   const chartData = (() => {
     if (monthlyNavSeries.length === 0) return monthlyNavSeries;
     const last = monthlyNavSeries[monthlyNavSeries.length - 1];
-    if (last.snapshot_date < todayIso) {
-      return [...monthlyNavSeries, { snapshot_date: todayIso, nav: endNav }];
+    if (last.snapshot_date.slice(0, 7) === todayMonth) {
+      return [
+        ...monthlyNavSeries.slice(0, -1),
+        { snapshot_date: todayIso, nav: endNav },
+      ];
     }
-    return [
-      ...monthlyNavSeries.slice(0, -1),
-      { snapshot_date: last.snapshot_date, nav: endNav },
-    ];
+    return [...monthlyNavSeries, { snapshot_date: todayIso, nav: endNav }];
   })();
 
   const navFromHistory =
