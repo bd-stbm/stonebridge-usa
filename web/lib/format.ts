@@ -22,11 +22,17 @@ export function pct(n: number, digits = 2): string {
   return `${(n * 100).toFixed(digits)}%`;
 }
 
-// Friendly benchmark label: drop the leading "^" and a trailing "TR" so
-// total-return tickers read cleanly in the UI:
-//   "^SP500TR" → "SP500", "^AXJT" → "AXJT", "ACWI" → "ACWI".
+// Friendly benchmark label: explicit overrides first, then a generic rule
+// that drops the leading "^" and a trailing "TR" so total-return tickers
+// read cleanly in the UI:
+//   "^SP500TR" → "SP500", "^AXJT" → "ASX200", "ACWI" → "ACWI".
+const INDEX_LABEL_OVERRIDES: Record<string, string> = {
+  "^AXJT": "ASX200",
+};
 export function indexLabel(ticker: string): string {
-  return ticker.replace(/^\^/, "").replace(/TR$/, "");
+  return (
+    INDEX_LABEL_OVERRIDES[ticker] ?? ticker.replace(/^\^/, "").replace(/TR$/, "")
+  );
 }
 
 export function shortDate(iso: string): string {
