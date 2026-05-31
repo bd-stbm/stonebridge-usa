@@ -6,7 +6,7 @@ import clsx from "clsx";
 import { PERIODS, type PeriodKey, type PeriodReturn } from "@/lib/returns";
 import type { IndexOption } from "@/lib/queries";
 import { setBenchmark } from "@/lib/actions";
-import { money, pct, indexLabel } from "@/lib/format";
+import { money, indexLabel } from "@/lib/format";
 
 interface Props {
   returns: Record<PeriodKey, PeriodReturn>;
@@ -26,6 +26,12 @@ function formatDate(iso: string | null): string {
     year: "numeric",
     timeZone: "UTC",
   });
+}
+
+// Percentage with an explicit "+" on non-negative values (negatives already
+// carry their sign from toFixed). Used for the hero return and benchmark line.
+function signedPct(n: number): string {
+  return `${n >= 0 ? "+" : ""}${(n * 100).toFixed(2)}%`;
 }
 
 export default function ReturnsTile({
@@ -56,24 +62,39 @@ export default function ReturnsTile({
 
   const showBenchmark = benchmark && availableBenchmarks.length > 0;
 
+  // Compact reporting-currency formatter for the hero gain (e.g. "$47.25M").
+  // The currency code propagates so an AUD client sees "A$…". The full,
+  // unabbreviated value stays available via the title attribute.
+  const compactMoney = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: reportingCcy,
+    notation: "compact",
+    maximumFractionDigits: 2,
+  });
+
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-xs uppercase tracking-wide text-slate-500">
           Return
+          {r.start_date && r.end_date ? (
+            <span className="ml-2 text-[11px] normal-case tracking-normal text-slate-400">
+              · {formatDate(r.start_date)} – {formatDate(r.end_date)}
+            </span>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex gap-1">
+          <div className="flex rounded-full bg-slate-100 p-0.5">
             {PERIODS.map(p => (
               <button
                 key={p.key}
                 type="button"
                 onClick={() => setSelected(p.key)}
                 className={clsx(
-                  "rounded px-2 py-0.5 text-xs font-medium",
+                  "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
                   p.key === selected
-                    ? "bg-brand text-white"
-                    : "text-slate-500 hover:bg-slate-100",
+                    ? "border border-slate-200 bg-white text-slate-900 shadow-sm"
+                    : "border border-transparent text-slate-500 hover:text-slate-700",
                 )}
               >
                 {p.label}
@@ -102,52 +123,58 @@ export default function ReturnsTile({
           ) : null}
         </div>
       </div>
-      <div
-        className={clsx(
-          "mt-2 text-2xl font-semibold",
-          tone === "positive" && "text-emerald-600",
-          tone === "negative" && "text-rose-600",
-          tone === "default" && "text-slate-900",
-        )}
-      >
-        {r.return_pct != null ? pct(r.return_pct, 2) : "—"}
-        {r.gain != null ? (
+
+      <div className="mt-4 flex items-center justify-between gap-4">
+        <div className="flex items-baseline gap-3">
           <span
             className={clsx(
-              "ml-2 text-sm font-medium",
-              tone === "positive" && "text-emerald-600/80",
-              tone === "negative" && "text-rose-600/80",
-              tone === "default" && "text-slate-500",
+              "text-4xl font-semibold tracking-tight",
+              tone === "positive" && "text-emerald-600",
+              tone === "negative" && "text-rose-600",
+              tone === "default" && "text-slate-900",
             )}
           >
-            {r.gain >= 0 ? "+" : ""}
-            {money(r.gain, reportingCcy)}
+            {r.return_pct != null ? signedPct(r.return_pct) : "—"}
           </span>
-        ) : null}
-      </div>
-      <div className="mt-1 text-xs text-slate-400">
-        {r.start_date && r.end_date
-          ? `${formatDate(r.start_date)} → ${formatDate(r.end_date)}`
-          : "Insufficient history"}
-      </div>
-      {showBenchmark ? (
-        <div className="mt-2 border-t border-slate-100 pt-2 text-xs text-slate-500">
-          vs <span className="font-medium text-slate-700">{indexLabel(benchmark!.ticker)}</span>:{" "}
-          <span className="text-slate-700">{ir != null ? pct(ir, 2) : "—"}</span>
-          {delta != null ? (
+          {r.gain != null ? (
             <span
+              title={money(r.gain, reportingCcy)}
               className={clsx(
-                "ml-2 font-medium",
-                deltaTone === "positive" && "text-emerald-600",
-                deltaTone === "negative" && "text-rose-600",
+                "text-lg font-medium",
+                tone === "positive" && "text-emerald-600/80",
+                tone === "negative" && "text-rose-600/80",
+                tone === "default" && "text-slate-500",
               )}
             >
-              ({delta >= 0 ? "+" : ""}
-              {(delta * 100).toFixed(2)} pp)
+              {r.gain >= 0 ? "+" : ""}
+              {compactMoney.format(r.gain)}
             </span>
           ) : null}
         </div>
-      ) : null}
+
+        {showBenchmark ? (
+          <div className="border-l border-slate-200 pl-4 text-right">
+            <div className="text-xs uppercase tracking-wide text-slate-400">
+              vs {indexLabel(benchmark!.ticker)}
+            </div>
+            <div
+              className={clsx(
+                "text-lg font-semibold",
+                deltaTone === "positive" && "text-emerald-600",
+                deltaTone === "negative" && "text-rose-600",
+                deltaTone === "default" && "text-slate-500",
+              )}
+            >
+              {delta != null
+                ? `${delta >= 0 ? "+" : ""}${(delta * 100).toFixed(2)} pp`
+                : "—"}
+            </div>
+            <div className="text-xs text-slate-500">
+              benchmark {ir != null ? signedPct(ir) : "—"}
+            </div>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
