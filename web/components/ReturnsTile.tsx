@@ -155,7 +155,7 @@ export default function ReturnsTile({
         {showBenchmark ? (
           <div className="border-l border-slate-200 pl-4 text-right">
             <div className="text-xs uppercase tracking-wide text-slate-400">
-              vs {indexLabel(benchmark!.ticker)}
+              vs {benchmark!.name}
             </div>
             <div
               className={clsx(
