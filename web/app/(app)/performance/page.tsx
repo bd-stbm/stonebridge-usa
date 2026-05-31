@@ -27,6 +27,7 @@ import {
   type PeriodKey,
   type PeriodReturn,
 } from "@/lib/returns";
+import { indexLabel } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -240,7 +241,7 @@ export default async function PerformancePage() {
         <h1 className="text-2xl font-semibold text-slate-900">Performance</h1>
         <span className="text-xs text-slate-500">
           {scopeNote}
-          {benchmark ? ` · benchmark ${benchmark.ticker}` : ""}
+          {benchmark ? ` · benchmark ${indexLabel(benchmark.ticker)}` : ""}
         </span>
       </div>
 
@@ -256,7 +257,7 @@ export default async function PerformancePage() {
         returns={trustReturns}
         navAtToday={trustNav}
         indexReturns={indexReturns}
-        benchmarkLabel={benchmark?.ticker}
+        benchmarkLabel={benchmark ? indexLabel(benchmark.ticker) : undefined}
       />
     </main>
   );

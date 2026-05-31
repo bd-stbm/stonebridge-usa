@@ -6,7 +6,7 @@ import clsx from "clsx";
 import { PERIODS, type PeriodKey, type PeriodReturn } from "@/lib/returns";
 import type { IndexOption } from "@/lib/queries";
 import { setBenchmark } from "@/lib/actions";
-import { money, pct } from "@/lib/format";
+import { money, pct, indexLabel } from "@/lib/format";
 
 interface Props {
   returns: Record<PeriodKey, PeriodReturn>;
@@ -95,7 +95,7 @@ export default function ReturnsTile({
             >
               {availableBenchmarks.map(b => (
                 <option key={b.ticker} value={b.ticker}>
-                  {b.ticker}
+                  {indexLabel(b.ticker)}
                 </option>
               ))}
             </select>
@@ -132,7 +132,7 @@ export default function ReturnsTile({
       </div>
       {showBenchmark ? (
         <div className="mt-2 border-t border-slate-100 pt-2 text-xs text-slate-500">
-          vs <span className="font-medium text-slate-700">{benchmark!.name}</span>:{" "}
+          vs <span className="font-medium text-slate-700">{indexLabel(benchmark!.ticker)}</span>:{" "}
           <span className="text-slate-700">{ir != null ? pct(ir, 2) : "—"}</span>
           {delta != null ? (
             <span

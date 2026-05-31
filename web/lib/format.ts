@@ -22,6 +22,13 @@ export function pct(n: number, digits = 2): string {
   return `${(n * 100).toFixed(digits)}%`;
 }
 
+// Friendly benchmark label: drop the leading "^" and a trailing "TR" so
+// total-return tickers read cleanly in the UI:
+//   "^SP500TR" → "SP500", "^AXJT" → "AXJT", "ACWI" → "ACWI".
+export function indexLabel(ticker: string): string {
+  return ticker.replace(/^\^/, "").replace(/TR$/, "");
+}
+
 export function shortDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", {
     year: "numeric",
