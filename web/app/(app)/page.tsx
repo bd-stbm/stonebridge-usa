@@ -3,6 +3,7 @@ import ReturnsTile from "@/components/ReturnsTile";
 import HoldingsTable from "@/components/HoldingsTable";
 import NavChart from "@/components/NavChart";
 import AssetAllocationTable from "@/components/AssetAllocationTable";
+import AllocationSummaryTile from "@/components/AllocationSummaryTile";
 import {
   computeKpis,
   getIndexPrices,
@@ -155,9 +156,15 @@ export default async function OverviewPage() {
 
   return (
     <main className="mx-auto max-w-7xl px-6 py-8">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <KpiTile label="NAV (latest)" value={money(kpis.nav, kpis.reporting_ccy)} />
-        <div className="md:col-span-3">
+      <div className="flex flex-col gap-4 md:flex-row md:items-stretch">
+        <div className="min-w-0 md:flex-[0.8]">
+          <KpiTile
+            label="NAV (latest)"
+            value={money(kpis.nav, kpis.reporting_ccy)}
+            className="h-full"
+          />
+        </div>
+        <div className="min-w-0 md:flex-[1.5]">
           <ReturnsTile
             returns={returns}
             indexReturns={indexReturns}
@@ -165,6 +172,9 @@ export default async function OverviewPage() {
             availableBenchmarks={indices}
             reportingCcy={kpis.reporting_ccy}
           />
+        </div>
+        <div className="min-w-0 md:flex-[1.1]">
+          <AllocationSummaryTile rows={allocation} />
         </div>
       </div>
 

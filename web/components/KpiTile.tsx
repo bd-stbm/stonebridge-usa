@@ -5,11 +5,23 @@ interface Props {
   value: string;
   hint?: string;
   tone?: "default" | "positive" | "negative";
+  className?: string;
 }
 
-export default function KpiTile({ label, value, hint, tone = "default" }: Props) {
+export default function KpiTile({
+  label,
+  value,
+  hint,
+  tone = "default",
+  className,
+}: Props) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-5">
+    <div
+      className={clsx(
+        "rounded-lg border border-slate-200 bg-white p-5",
+        className,
+      )}
+    >
       <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
       <div
         className={clsx(
