@@ -75,15 +75,15 @@ export default function ReturnsTile({
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-xs uppercase tracking-wide text-slate-500">
-          Return
-          {r.start_date && r.end_date ? (
-            <span className="ml-2 text-[11px] normal-case tracking-normal text-slate-400">
-              · {formatDate(r.start_date)} – {formatDate(r.end_date)}
-            </span>
-          ) : null}
-        </div>
         <div className="flex flex-wrap items-center gap-3">
+          <div className="text-xs uppercase tracking-wide text-slate-500">
+            Return
+            {r.start_date && r.end_date ? (
+              <span className="ml-2 text-[11px] normal-case tracking-normal text-slate-400">
+                · {formatDate(r.start_date)} – {formatDate(r.end_date)}
+              </span>
+            ) : null}
+          </div>
           <div className="flex rounded-full bg-slate-100 p-0.5">
             {PERIODS.map(p => (
               <button
@@ -101,27 +101,27 @@ export default function ReturnsTile({
               </button>
             ))}
           </div>
-          {showBenchmark ? (
-            <select
-              value={benchmark!.ticker}
-              disabled={pending}
-              onChange={e => {
-                const value = e.target.value;
-                startTransition(async () => {
-                  await setBenchmark(value);
-                  router.refresh();
-                });
-              }}
-              className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
-            >
-              {availableBenchmarks.map(b => (
-                <option key={b.ticker} value={b.ticker}>
-                  {indexLabel(b.ticker)}
-                </option>
-              ))}
-            </select>
-          ) : null}
         </div>
+        {showBenchmark ? (
+          <select
+            value={benchmark!.ticker}
+            disabled={pending}
+            onChange={e => {
+              const value = e.target.value;
+              startTransition(async () => {
+                await setBenchmark(value);
+                router.refresh();
+              });
+            }}
+            className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
+          >
+            {availableBenchmarks.map(b => (
+              <option key={b.ticker} value={b.ticker}>
+                {indexLabel(b.ticker)}
+              </option>
+            ))}
+          </select>
+        ) : null}
       </div>
 
       <div className="mt-4 flex items-center justify-between gap-4">
