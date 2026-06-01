@@ -75,32 +75,13 @@ export default function ReturnsTile({
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="text-xs uppercase tracking-wide text-slate-500">
-            Return
-            {r.start_date && r.end_date ? (
-              <span className="ml-2 text-[11px] normal-case tracking-normal text-slate-400">
-                · {formatDate(r.start_date)} – {formatDate(r.end_date)}
-              </span>
-            ) : null}
-          </div>
-          <div className="flex rounded-full bg-slate-100 p-0.5">
-            {PERIODS.map(p => (
-              <button
-                key={p.key}
-                type="button"
-                onClick={() => setSelected(p.key)}
-                className={clsx(
-                  "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
-                  p.key === selected
-                    ? "border border-slate-200 bg-white text-slate-900 shadow-sm"
-                    : "border border-transparent text-slate-500 hover:text-slate-700",
-                )}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
+        <div className="text-xs uppercase tracking-wide text-slate-500">
+          Return
+          {r.start_date && r.end_date ? (
+            <span className="ml-2 text-[11px] normal-case tracking-normal text-slate-400">
+              · {formatDate(r.start_date)} – {formatDate(r.end_date)}
+            </span>
+          ) : null}
         </div>
         {showBenchmark ? (
           <select
@@ -122,6 +103,26 @@ export default function ReturnsTile({
             ))}
           </select>
         ) : null}
+      </div>
+
+      <div className="mt-3 flex">
+        <div className="flex rounded-full bg-slate-100 p-0.5">
+          {PERIODS.map(p => (
+            <button
+              key={p.key}
+              type="button"
+              onClick={() => setSelected(p.key)}
+              className={clsx(
+                "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+                p.key === selected
+                  ? "border border-slate-200 bg-white text-slate-900 shadow-sm"
+                  : "border border-transparent text-slate-500 hover:text-slate-700",
+              )}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="mt-4 flex items-center justify-between gap-4">
