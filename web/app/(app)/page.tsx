@@ -2,7 +2,6 @@ import KpiTile from "@/components/KpiTile";
 import ReturnsTile from "@/components/ReturnsTile";
 import HoldingsTable from "@/components/HoldingsTable";
 import NavChart from "@/components/NavChart";
-import AssetAllocationTable from "@/components/AssetAllocationTable";
 import AllocationSummaryTile from "@/components/AllocationSummaryTile";
 import {
   computeKpis,
@@ -91,7 +90,7 @@ export default async function OverviewPage() {
     indices.find(i => i.ticker === benchmarkTicker) ?? indices[0] ?? null;
 
   // Asset allocation: aggregate today's refreshed positions by asset_class.
-  // Drives the AssetAllocationTable; clicking a row sets the global filter.
+  // Drives the AllocationSummaryTile in the top row.
   // Computed in JS off the positions list — no extra round-trip.
   const allocation = (() => {
     const totals = new Map<string, number>();
@@ -177,14 +176,6 @@ export default async function OverviewPage() {
           <AllocationSummaryTile rows={allocation} />
         </div>
       </div>
-
-      <section className="mt-8">
-        <AssetAllocationTable
-          rows={allocation}
-          currentClasses={assetClasses}
-          reportingCcy={kpis.reporting_ccy}
-        />
-      </section>
 
       <section className="mt-8">
         <NavChart data={chartData} reportingCcy={kpis.reporting_ccy} />
