@@ -268,8 +268,23 @@ CREATE INDEX IF NOT EXISTS sync_log_ts_idx ON public.sync_log (sync_timestamp DE
 -- definer_view, and a real leak once family-scoped policies are added.
 
 -- Convenience view: latest snapshot per account-position
+-- "Latest snapshot per account" — see migration 027. The latest_per_account
+-- CTE is AS MATERIALIZED so the join-back range-scans only the latest slice
+-- via the primary key instead of re-reading all position history per account
+-- (which used to breach the 8s authenticated statement_timeout cold).
 CREATE OR REPLACE VIEW public.v_latest_positions
 WITH (security_invoker = true) AS
+WITH latest_per_account AS MATERIALIZED (
+    SELECT e.node_id AS account_node_id, m.snapshot_date
+    FROM public.entity e
+    CROSS JOIN LATERAL (
+        SELECT p.snapshot_date
+        FROM public.position_snapshot p
+        WHERE p.account_node_id = e.node_id
+        ORDER BY p.snapshot_date DESC
+        LIMIT 1
+    ) m
+)
 SELECT
     p.snapshot_date,
     p.account_node_id,
@@ -300,13 +315,12 @@ SELECT
     (p.mv_local - p.total_cost_local) AS unrealized_gl_local,
     p.accrued_interest_reporting
 FROM public.position_snapshot p
-JOIN public.entity e             ON p.account_node_id = e.node_id
-LEFT JOIN public.entity_attribution ea ON p.account_node_id = ea.node_id
-LEFT JOIN public.security s      ON p.security_id     = s.security_id
-WHERE p.snapshot_date = (
-    SELECT MAX(snapshot_date) FROM public.position_snapshot
-    WHERE account_node_id = p.account_node_id
-);
+JOIN latest_per_account la
+       ON la.account_node_id = p.account_node_id
+      AND la.snapshot_date   = p.snapshot_date
+JOIN      public.entity              e  ON p.account_node_id = e.node_id
+LEFT JOIN public.entity_attribution  ea ON p.account_node_id = ea.node_id
+LEFT JOIN public.security            s  ON p.security_id     = s.security_id;
 
 -- Monthly NAV per account
 CREATE OR REPLACE VIEW public.v_nav_monthly_by_account
