@@ -40,11 +40,12 @@ def visible_sub_clients(cur) -> set[str]:
     return {r["sub_client_node_id"] for r in cur.fetchall() if r["sub_client_node_id"]}
 
 
-def enter_session(cur, uid: str) -> None:
-    """Switch the current txn to act as authenticated user `uid`."""
+def enter_session(cur, uid: str, aal: str = "aal2") -> None:
+    """Switch the current txn to act as authenticated user `uid`. Defaults to
+    aal2 (MFA completed) since migration 030 requires it for family data."""
     cur.execute(
         "SELECT set_config('request.jwt.claims', %s, true)",
-        (json.dumps({"sub": uid, "role": "authenticated"}),),
+        (json.dumps({"sub": uid, "role": "authenticated", "aal": aal}),),
     )
     cur.execute("SET LOCAL ROLE authenticated")
 
@@ -161,6 +162,31 @@ def main() -> int:
         check("security readable", cur.fetchone()["n"] > 0)
         cur.execute("SELECT count(*) n FROM index_price_history")
         check("index_price_history readable", cur.fetchone()["n"] > 0)
+    finally:
+        conn.rollback()
+
+    # --- 6. aal1 (MFA not completed) sees no family data ---------------
+    # migration 030 requires aal2 for family tables. A password-only (aal1)
+    # session must see nothing, even with a valid family mapping — but the
+    # session-bootstrap / MFA-flow tables must stay readable so the user can
+    # actually get through enrollment.
+    print("6. Client at aal1 (password ok, MFA not completed):")
+    try:
+        cur.execute("UPDATE app_user SET role='client' WHERE user_id=%s", (uid,))
+        cur.execute("DELETE FROM user_family_access WHERE user_id=%s", (uid,))
+        cur.execute("INSERT INTO user_family_access(user_id, sub_client_node_id) "
+                    "VALUES (%s,%s)", (uid, MILLER))
+        enter_session(cur, uid, aal="aal1")
+        check("aal1 sees no position rows", visible_sub_clients(cur) == set())
+        cur.execute("SELECT count(*) n FROM v_positions_refreshed")
+        check("aal1 v_positions_refreshed empty", cur.fetchone()["n"] == 0)
+        cur.execute("SELECT count(*) n FROM entity_attribution")
+        check("aal1 entity_attribution empty", cur.fetchone()["n"] == 0)
+        cur.execute("SELECT count(*) n FROM app_user WHERE user_id=%s", (uid,))
+        check("aal1 can still read own app_user row (getSessionUser works)",
+              cur.fetchone()["n"] == 1)
+        cur.execute("SELECT count(*) n FROM security")
+        check("aal1 can still read shared reference", cur.fetchone()["n"] > 0)
     finally:
         conn.rollback()
 
