@@ -496,6 +496,27 @@ def upsert_positions(conn, holdings_payload: list[dict],
         ))
         inserted += 1
 
+    # Guard against value-less payloads. On month-rollover days Masttro can
+    # return the position rows (account, security, date) for the current
+    # month with every numeric field null, because the custodian feed hasn't
+    # reported a valuation yet. Writing those would stamp a new latest
+    # snapshot of all-NULL NAV — and v_latest_positions picks MAX(snapshot_
+    # date) per account, so that empty day shadows the last good one and the
+    # dashboard collapses to ~zero. A genuine snapshot always has some valued
+    # rows, so "rows present but zero have a marketValue" is the signal to
+    # skip. (mv_reporting is element 6 of each tuple.) Partial feeds — some
+    # accounts valued, others not — are real data and pass through.
+    valued = sum(1 for r in rows if r[6] is not None)
+    if rows and valued == 0:
+        snap = rows[0][0]
+        print(f"  WARN: value-less Holdings payload — {inserted} position rows, "
+              f"0 with a marketValue, snapshot {snap}. Skipping position write "
+              f"(likely month-rollover before custodian feeds settled).")
+        log_sync(conn, "positions", None,
+                 f"SKIPPED value-less payload candidate_rows={inserted} valued=0", 0)
+        return {"inserted": 0, "skipped_acct": skipped_acct,
+                "skipped_sid": skipped_sid, "skipped_valueless": inserted}
+
     if rows:
         with conn.cursor() as cur:
             cur.executemany(
