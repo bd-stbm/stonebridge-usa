@@ -507,16 +507,44 @@ export async function getNavSeries(
 ): Promise<NavPoint[]> {
   const effective = effectiveAssetClasses(assetClasses);
   return timed(`getNavSeries(${trusts.length}t,${accounts.length}a,${effective.length}c)`, async () => {
-    // Always query v_nav_monthly_by_asset_class with an explicit
-    // .in() filter on asset_class. The cheaper v_nav_monthly_by_account
-    // path was dropped (it doesn't carry asset_class so it can't
-    // exclude hidden alternatives — using it silently inflated NAV).
-    // This view IS pre-aggregated per (snapshot_date, account, class)
-    // and the asset_class column is in its GROUP BY, so the filter
-    // pushes down through PostgREST cleanly — no need for the RPC
-    // workaround that migration 020 added (it remains for callers
-    // that still want a single-round-trip aggregate).
     const excluded = excludedEntities(subClient);
+
+    // Per-account carry-forward monthly series (migration 033). Each month-end
+    // values every account at its latest snapshot ON OR BEFORE that month-end,
+    // then sums — the same basis as endNav (v_positions_refreshed) and the
+    // 031/032 returns fixes. The previous date-exact path summed only the
+    // single latest snapshot date in each month, so an account whose last
+    // business-day snapshot lagged the others (e.g. an AU super fund reporting
+    // a day behind) was dropped from the bucket and showed as a spurious dip
+    // in the line. nearestOnOrBefore() over a monthly grid still gives the
+    // correct prior-month-end start NAV for any return that falls back here.
+    const { data: cfData, error: cfError } = await getSupabaseServer().rpc(
+      "nav_monthly_carryforward",
+      {
+        p_sub_client:      subClient,
+        p_trusts:          trusts.length ? trusts : null,
+        p_accounts:        accounts.length ? accounts : null,
+        p_asset_classes:   effective,
+        p_excluded_trusts: excluded.length ? excluded : null,
+        p_floor:           NAV_HISTORY_FLOOR,
+      },
+    );
+    if (!cfError) {
+      return ((cfData ?? []) as Array<{ month_end: string; nav: unknown }>)
+        .map(r => ({ snapshot_date: r.month_end, nav: Number(r.nav ?? 0) }))
+        .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+    }
+    const cfCode = (cfError as { code?: string }).code;
+    if (cfCode !== "PGRST202" && cfCode !== "PGRST203") throw cfError;
+    // Migration 033 not applied yet — fall back to the date-exact view.
+    console.log(`[q] nav_monthly_carryforward fallback: ${cfCode} ${cfError.message}`);
+
+    // Query v_nav_monthly_by_asset_class with an explicit .in() filter on
+    // asset_class. The cheaper v_nav_monthly_by_account path was dropped (it
+    // doesn't carry asset_class so it can't exclude hidden alternatives —
+    // using it silently inflated NAV). This view IS pre-aggregated per
+    // (snapshot_date, account, class) and the asset_class column is in its
+    // GROUP BY, so the filter pushes down through PostgREST cleanly.
     let q = getSupabaseServer()
       .from("v_nav_monthly_by_asset_class")
       .select("snapshot_date, nav_reporting")
