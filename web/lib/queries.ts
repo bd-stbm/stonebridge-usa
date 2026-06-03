@@ -1128,6 +1128,48 @@ export async function getNavCarryforwardByTrust(
   });
 }
 
+// Scoped-TOTAL per-account carry-forward NAV at `targetDate` (migration 032).
+// Same per-account carry-forward basis as endNav, summed across the current
+// scope. Drop-in for the Overview's start NAVs (replaces nav_at_or_before),
+// so a stale account that's carried into endNav is carried into the start
+// too — no phantom gain when an entity filter narrows to a small entity.
+export async function getNavCarryforward(
+  subClient: string,
+  trusts: string[],
+  accounts: string[],
+  targetDate: string,
+  assetClasses: string[] = [],
+): Promise<NavAnchor | null> {
+  const effective = effectiveAssetClasses(assetClasses);
+  const label = `nav_carryforward(${targetDate},${effective.length}c)`;
+  return timed(label, async () => {
+    const excluded = excludedEntities(subClient);
+    const { data, error } = await getSupabaseServer().rpc("nav_carryforward", {
+      p_sub_client:      subClient,
+      p_trusts:          trusts.length ? trusts : null,
+      p_accounts:        accounts.length ? accounts : null,
+      p_target_date:     targetDate,
+      p_asset_classes:   effective,
+      p_excluded_trusts: excluded.length ? excluded : null,
+    });
+    if (error) {
+      const code = (error as { code?: string }).code;
+      if (code === "PGRST202" || code === "PGRST203") {
+        console.log(`[q] ${label} fallback: ${code} ${error.message}`);
+        return null;
+      }
+      throw error;
+    }
+    const rows = (data ?? []) as Array<{ nav: unknown; anchor_date: string | null }>;
+    if (rows.length === 0) return null;
+    const row = rows[0];
+    if (!row.anchor_date) return null; // no snapshot on/before the target
+    const n = Number(row.nav);
+    if (!Number.isFinite(n)) return null;
+    return { nav: n, anchorDate: row.anchor_date };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Per-(month × security) attribution for the Performance page drill-in.
 // ---------------------------------------------------------------------------

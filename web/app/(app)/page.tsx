@@ -8,7 +8,7 @@ import {
   getIndexPrices,
   getLatestPositions,
   getNavSeries,
-  getNavAtOrBefore,
+  getNavCarryforward,
   getPeriodReturns,
   listIndices,
 } from "@/lib/queries";
@@ -35,23 +35,28 @@ export default async function OverviewPage() {
   const accounts = getSelectedAccounts();
   const assetClasses = getSelectedAssetClasses();
   const benchmarkTicker = getSelectedBenchmark();
-  // 6M / 12M start NAVs via the nav_at_or_before RPC. Masttro only exposes
-  // month-end historicals, so the RPC returns the raw NAV at the most
-  // recent snapshot ≤ target date — and also returns that anchor_date so
-  // we can label the period start honestly. Other periods (1D / MTD / YTD)
-  // already align to dates we have exactly, so they use the snapshot-grid
-  // path. The RPC takes text[] for asset_class so a multi-class filter is
-  // a single round-trip regardless of how many are selected.
+  // Start NAVs for MTD / YTD / 6M / 1Y via the per-account carry-forward RPC.
+  // Each account is valued at its latest snapshot ≤ the target date — the
+  // same latest-per-account basis as endNav — so a stale account (e.g. an AU
+  // super fund reporting monthly) is carried into BOTH the end and the start
+  // and can't read as a phantom gain. This matters most when the Entity
+  // filter narrows to a small entity (migration 032). At month-end anchors
+  // it equals the old nav_at_or_before; only the near-stale-edge MTD differs.
   const today = new Date();
+  const targetMtd = computePeriodStart("mtd", today);
+  const targetYtd = computePeriodStart("ytd", today);
   const target6M = computePeriodStart("6m", today);
   const target1Y = computePeriodStart("1y", today);
-  const [positions, navSeries, indices, nav6M, nav1Y] = await Promise.all([
-    getLatestPositions(subClient, trusts, accounts, assetClasses),
-    getNavSeries(subClient, trusts, accounts, assetClasses),
-    listIndices(),
-    getNavAtOrBefore(subClient, trusts, accounts, target6M, assetClasses),
-    getNavAtOrBefore(subClient, trusts, accounts, target1Y, assetClasses),
-  ]);
+  const [positions, navSeries, indices, navMtd, navYtd, nav6M, nav1Y] =
+    await Promise.all([
+      getLatestPositions(subClient, trusts, accounts, assetClasses),
+      getNavSeries(subClient, trusts, accounts, assetClasses),
+      listIndices(),
+      getNavCarryforward(subClient, trusts, accounts, targetMtd, assetClasses),
+      getNavCarryforward(subClient, trusts, accounts, targetYtd, assetClasses),
+      getNavCarryforward(subClient, trusts, accounts, target6M, assetClasses),
+      getNavCarryforward(subClient, trusts, accounts, target1Y, assetClasses),
+    ]);
   const kpis = computeKpis(positions);
 
   // Use the yfinance-refreshed sums as the end-of-period NAV for every return,
@@ -66,6 +71,8 @@ export default async function OverviewPage() {
     0,
   );
   const startNavByPeriod: Partial<Record<PeriodKey, { nav: number; date: string }>> = {};
+  if (navMtd != null) startNavByPeriod["mtd"] = { nav: navMtd.nav, date: navMtd.anchorDate };
+  if (navYtd != null) startNavByPeriod["ytd"] = { nav: navYtd.nav, date: navYtd.anchorDate };
   if (nav6M != null) startNavByPeriod["6m"] = { nav: nav6M.nav, date: nav6M.anchorDate };
   if (nav1Y != null) startNavByPeriod["1y"] = { nav: nav1Y.nav, date: nav1Y.anchorDate };
 
