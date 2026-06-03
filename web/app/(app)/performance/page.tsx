@@ -7,6 +7,7 @@ import {
   getIndexPrices,
   getLatestPositions,
   getMonthlySecurityAttribution,
+  getNavCarryforwardByTrust,
   getNavSeries,
   getNavSeriesByTrust,
   getPeriodReturns,
@@ -24,6 +25,7 @@ import { getActiveSubClient } from "@/lib/session";
 import {
   computeAllPeriodReturns,
   computeIndexReturnsForAllPeriods,
+  computePeriodStart,
   type PeriodKey,
   type PeriodReturn,
 } from "@/lib/returns";
@@ -199,6 +201,20 @@ export default async function PerformancePage() {
   }
 
   // --- Trust matrix --------------------------------------------------------
+  // Per-trust carry-forward start NAVs for each period. Each account is valued
+  // at its latest snapshot on/before the period target — the same
+  // latest-per-account basis as endNav — so a stale account (e.g. an AU super
+  // fund that reports monthly) doesn't surface as a phantom gain in the entity
+  // return. These feed computePeriodReturn as startNavByPeriod overrides,
+  // replacing the date-exact NAV-series snap for MTD/YTD/6M/1Y (migration 031).
+  const matrixPeriods: PeriodKey[] = ["mtd", "ytd", "6m", "1y"];
+  const matrixTargets = matrixPeriods.map(p => computePeriodStart(p, today));
+  const carryforwardByTarget = await Promise.all(
+    matrixTargets.map(date =>
+      getNavCarryforwardByTrust(subClient, trusts, accounts, date, assetClasses),
+    ),
+  );
+
   const positionsByTrust = groupBy(positions, p => p.trust_alias);
   const trustReturns: Record<string, Record<PeriodKey, PeriodReturn>> = {};
   const trustNav: Record<string, number> = {};
@@ -206,10 +222,17 @@ export default async function PerformancePage() {
     const trustPositions = positionsByTrust.get(trustAlias) ?? [];
     const endNav = sumPosition(trustPositions, "mv_reporting");
     const endNavYesterday = sumPosition(trustPositions, "mv_reporting_yesterday");
+    const startNavByPeriod: Partial<
+      Record<PeriodKey, { nav: number; date: string }>
+    > = {};
+    matrixPeriods.forEach((period, i) => {
+      const cf = carryforwardByTarget[i][trustAlias];
+      if (cf) startNavByPeriod[period] = { nav: cf.nav, date: cf.anchorDate };
+    });
     trustReturns[trustAlias] = computeAllPeriodReturns(
       navs.map(n => ({ date: n.snapshot_date, nav: n.nav })),
       flowsByTrust[trustAlias] ?? [],
-      { endNav, endNavYesterday },
+      { endNav, endNavYesterday, startNavByPeriod },
     );
     trustNav[trustAlias] = endNav;
   }

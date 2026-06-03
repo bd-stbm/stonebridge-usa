@@ -1075,6 +1075,59 @@ export async function getNavAtOrBefore(
   });
 }
 
+// Per-account carry-forward NAV at `targetDate`, grouped by trust (entity).
+// Each account contributes its latest snapshot ON OR BEFORE the target, so a
+// stale account (feed lagging) carries its last-known value forward — the
+// same basis as the latest-per-account endNav. Used as the startNavByPeriod
+// override in the performance matrix so an entity's period return isn't
+// inflated by an account that's present in the end NAV but missing from a
+// date-exact start NAV (see migration 031). Returns {} on a missing-RPC
+// fallback so the caller drops to the date-exact series path.
+export async function getNavCarryforwardByTrust(
+  subClient: string,
+  trusts: string[],
+  accounts: string[],
+  targetDate: string,
+  assetClasses: string[] = [],
+): Promise<Record<string, { nav: number; anchorDate: string }>> {
+  const effective = effectiveAssetClasses(assetClasses);
+  const label = `nav_carryforward_by_trust(${targetDate},${effective.length}c)`;
+  return timed(label, async () => {
+    const excluded = excludedEntities(subClient);
+    const { data, error } = await getSupabaseServer()
+      .rpc("nav_carryforward_by_trust", {
+        p_sub_client:      subClient,
+        p_trusts:          trusts.length ? trusts : null,
+        p_accounts:        accounts.length ? accounts : null,
+        p_target_date:     targetDate,
+        p_asset_classes:   effective,
+        p_excluded_trusts: excluded.length ? excluded : null,
+      })
+      .limit(LIMIT_LARGE);
+    if (error) {
+      const code = (error as { code?: string }).code;
+      if (code === "PGRST202" || code === "PGRST203") {
+        console.log(`[q] ${label} fallback: ${code} ${error.message}`);
+        return {};
+      }
+      throw error;
+    }
+    const rows = (data ?? []) as Array<{
+      trust_alias: string;
+      nav: unknown;
+      anchor_date: string;
+    }>;
+    const out: Record<string, { nav: number; anchorDate: string }> = {};
+    for (const r of rows) {
+      const n = Number(r.nav);
+      if (r.trust_alias && Number.isFinite(n)) {
+        out[r.trust_alias] = { nav: n, anchorDate: r.anchor_date };
+      }
+    }
+    return out;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Per-(month × security) attribution for the Performance page drill-in.
 // ---------------------------------------------------------------------------
