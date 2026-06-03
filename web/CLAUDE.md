@@ -140,10 +140,19 @@ identically to the old `.eq()` calls.
   tables gates row visibility through the view. Without this, family-
   scoped RLS would silently leak through views. Linter flag
   `0010_security_definer_view` is the canary.
-- **Every table has RLS enabled**. Phase 1 policy is `phase1
-  authenticated read` = `FOR SELECT TO authenticated USING (true)` — every
-  signed-in user sees everything. Phase 2 (per-family scoping) is planned
-  but not built.
+- **Every table has RLS enabled, now family-scoped (Phase 2a, migration
+  028).** `entity`, `entity_attribution`, `position_snapshot`,
+  `transaction_log` carry `USING (is_admin() OR sub_client_node_id = ANY
+  (current_user_sub_clients()))`; shared reference tables (`security`,
+  `pricing_refresh`, `index_*`, `security_price_history`) stay
+  authenticated-read; `sync_log` is admin-only. Admin identity is
+  `app_user.role = 'admin'` (seeded from `@stbm.com.au`); clients are mapped
+  to families in `user_family_access`. `position_snapshot` /
+  `transaction_log` carry a denormalised `sub_client_node_id` (set by the
+  `set_sub_client_node_id()` insert trigger) so the policy is a cheap column
+  check. The web layer (`lib/session.ts`: `getSessionUser`,
+  `getActiveSubClient`) mirrors this for UX (default scope, selector gating,
+  no-access state) but is NOT the security boundary — RLS is.
 - **service_role bypasses RLS**; used by the Python sync, not by the web
   app. The web app uses `@supabase/ssr` with the anon key + user session.
 - **Migrations append-only** under `supabase/migrations/NNN_*.sql`.

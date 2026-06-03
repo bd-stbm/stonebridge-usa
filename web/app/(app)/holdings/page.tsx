@@ -7,14 +7,14 @@ import {
 import {
   getSelectedAccounts,
   getSelectedAssetClasses,
-  getSelectedSubClient,
   getSelectedTrusts,
 } from "@/lib/trust-filter";
+import { getActiveSubClient } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
 export default async function HoldingsPage() {
-  const subClient = getSelectedSubClient();
+  const subClient = await getActiveSubClient();
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
   const assetClasses = getSelectedAssetClasses();

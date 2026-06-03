@@ -16,9 +16,9 @@ import {
   getSelectedAccounts,
   getSelectedAssetClasses,
   getSelectedBenchmark,
-  getSelectedSubClient,
   getSelectedTrusts,
 } from "@/lib/trust-filter";
+import { getActiveSubClient } from "@/lib/session";
 import {
   computeIndexReturnsForAllPeriods,
   computePeriodStart,
@@ -30,7 +30,7 @@ export const dynamic = "force-dynamic";
 
 export default async function OverviewPage() {
   const _renderStart = Date.now();
-  const subClient = getSelectedSubClient();
+  const subClient = await getActiveSubClient();
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
   const assetClasses = getSelectedAssetClasses();

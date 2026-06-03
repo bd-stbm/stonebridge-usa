@@ -18,9 +18,9 @@ import {
   getSelectedAccounts,
   getSelectedAssetClasses,
   getSelectedBenchmark,
-  getSelectedSubClient,
   getSelectedTrusts,
 } from "@/lib/trust-filter";
+import { getActiveSubClient } from "@/lib/session";
 import {
   computeAllPeriodReturns,
   computeIndexReturnsForAllPeriods,
@@ -73,7 +73,7 @@ function monthIsoToLabel(monthIso: string): string {
 }
 
 export default async function PerformancePage() {
-  const subClient = getSelectedSubClient();
+  const subClient = await getActiveSubClient();
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
   const assetClasses = getSelectedAssetClasses();

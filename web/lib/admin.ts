@@ -1,13 +1,13 @@
-// Who can see the SubClient selector in the header.
+// DEPRECATED — admin identity now lives in the database.
 //
-// Today this is hardcoded — internal Stonebridge users are admins, anyone
-// else (family principals, advisors invited later) is not. When Phase 2
-// RLS lands the same predicate should drive both: the UI gate here AND
-// the database row-level policy on every table. Until then this is a
-// COSMETIC gate only: a non-admin who hand-edits their `sub_client`
-// cookie would still get cross-family data back, because RLS is
-// `USING (true)` on every table. Do NOT invite external users until
-// Phase 2 RLS is in place.
+// Phase 2a (migration 028) replaced this cosmetic email-domain gate with a
+// real role: app_user.role = 'admin', surfaced at runtime via
+// getSessionUser().isAdmin and enforced by RLS through is_admin(). The
+// @stbm.com.au domain is still used, but only once, to SEED admins in the
+// migration — not as a live authorization check.
+//
+// Kept only so any stale import resolves; prefer getSessionUser() from
+// lib/session.ts. Safe to delete once nothing references it.
 
 const ADMIN_EMAIL_DOMAINS = ["stbm.com.au"] as const;
 

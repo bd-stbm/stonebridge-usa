@@ -47,6 +47,9 @@ CREATE TABLE IF NOT EXISTS public.entity (
     group_node_id        TEXT,            -- Masttro groupNodeId; cross-structure
                                           -- shared vehicles share one groupNodeId
                                           -- across their reflections
+    sub_client_node_id   TEXT,            -- denormalised owning family for RLS
+                                          -- (migration 028); kept fresh by
+                                          -- rebuild_attribution
     created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -132,6 +135,9 @@ CREATE TABLE IF NOT EXISTS public.position_snapshot (
     accrued_interest_reporting NUMERIC(20, 4),
     unit_cost_local            NUMERIC(20, 8),
     total_cost_local           NUMERIC(20, 4),
+    sub_client_node_id         TEXT,   -- denormalised owning family for RLS
+                                       -- (migration 028); set on INSERT by the
+                                       -- set_sub_client_node_id() trigger
     created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (snapshot_date, account_node_id, security_id)
 );
@@ -168,6 +174,9 @@ CREATE TABLE IF NOT EXISTS public.transaction_log (
     local_ccy               CHAR(3),
     reporting_ccy           CHAR(3),
     is_external_flow        BOOLEAN NOT NULL DEFAULT FALSE,
+    sub_client_node_id      TEXT,   -- denormalised owning family for RLS
+                                    -- (migration 028); set on INSERT by the
+                                    -- set_sub_client_node_id() trigger
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS txn_account_date_idx
@@ -505,31 +514,28 @@ ALTER TABLE public.index_definition       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.index_price_history    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.security_price_history ENABLE ROW LEVEL SECURITY;
 
--- Example "allow all reads for authenticated users" policy template
--- (uncomment and customise per table once your auth model is decided):
---
--- CREATE POLICY "allow read for authenticated"
---     ON public.position_snapshot
---     FOR SELECT
---     TO authenticated
---     USING (true);
---
--- For sub-client-scoped access (each user sees only their family):
---
--- CREATE POLICY "user sees own family"
---     ON public.position_snapshot
---     FOR SELECT
---     TO authenticated
---     USING (
---         account_node_id IN (
---             SELECT a.node_id
---             FROM public.entity a
---             JOIN public.entity_attribution ea ON a.node_id = ea.node_id
---             WHERE ea.sub_client_node_id = (
---                 SELECT sub_client_node_id FROM public.user_profile
---                 WHERE user_id = auth.uid()
---             )
---         )
---     );
+-- User-management tables (Phase 2a, migration 028).
+CREATE TABLE IF NOT EXISTS public.app_user (
+    user_id    UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    role       TEXT NOT NULL DEFAULT 'client' CHECK (role IN ('admin', 'client')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS public.user_family_access (
+    user_id            UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    sub_client_node_id TEXT NOT NULL,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, sub_client_node_id)
+);
+ALTER TABLE public.app_user           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_family_access ENABLE ROW LEVEL SECURITY;
+
+-- The RLS helper functions (is_admin, current_user_sub_clients), the
+-- set_sub_client_node_id() insert trigger, and the family-scoped SELECT
+-- policies on entity / entity_attribution / position_snapshot /
+-- transaction_log (plus authenticated-read on shared reference tables and
+-- admin-only on sync_log) are defined in
+-- supabase/migrations/028_user_management_rls.sql. Apply that migration
+-- after this schema on a fresh deploy. Admins are seeded there from the
+-- @stbm.com.au email domain; map clients to families via user_family_access.
 
 COMMIT;

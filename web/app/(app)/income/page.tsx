@@ -15,9 +15,9 @@ import {
 import {
   getSelectedAccounts,
   getSelectedAssetClasses,
-  getSelectedSubClient,
   getSelectedTrusts,
 } from "@/lib/trust-filter";
+import { getActiveSubClient } from "@/lib/session";
 import { money, pct } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -36,7 +36,7 @@ function sumAmount(rows: IncomeRow[]): number {
 }
 
 export default async function IncomePage() {
-  const subClient = getSelectedSubClient();
+  const subClient = await getActiveSubClient();
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
   const assetClasses = getSelectedAssetClasses();

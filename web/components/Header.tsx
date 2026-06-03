@@ -1,19 +1,20 @@
 import Image from "next/image";
 import Link from "next/link";
-import { getSupabaseServer } from "@/lib/supabase-server";
 import {
   listAccounts,
   listAssetClasses,
-  listSubClients,
   listTrusts,
 } from "@/lib/queries";
 import {
   getSelectedAccounts,
   getSelectedAssetClasses,
-  getSelectedSubClient,
   getSelectedTrusts,
 } from "@/lib/trust-filter";
-import { isAdminEmail } from "@/lib/admin";
+import {
+  getAccessibleSubClients,
+  getActiveSubClient,
+  getSessionUser,
+} from "@/lib/session";
 import TrustFilter from "@/components/TrustFilter";
 import AccountFilter from "@/components/AccountFilter";
 import AssetClassFilter from "@/components/AssetClassFilter";
@@ -38,22 +39,24 @@ export default async function Header() {
   const currentTrusts = getSelectedTrusts();
   const currentAccounts = getSelectedAccounts();
   const currentAssetClasses = getSelectedAssetClasses();
-  const scope = getSelectedSubClient();
 
-  // Auth first — we need the email to decide whether to fetch the sub-client
-  // list (admin-only). Trusts + accounts are scoped to the current sub-client
-  // and always needed.
-  const {
-    data: { user },
-  } = await getSupabaseServer().auth.getUser();
-  const showSubClientSelector = isAdminEmail(user?.email);
+  // Identity + the families this user can actually see (RLS-scoped). The
+  // effective scope is clamped to that set so a client never lands on a
+  // family they can't read. The selector is shown to admins and to any
+  // client who holds more than one family; a single-family client has
+  // nothing to switch between, so it's hidden.
+  const sessionUser = await getSessionUser();
+  const accessibleSubClients = await getAccessibleSubClients();
+  const scope = await getActiveSubClient(accessibleSubClients);
+  const showSubClientSelector =
+    (sessionUser?.isAdmin ?? false) || accessibleSubClients.length > 1;
 
-  const [trusts, accounts, assetClasses, subClients] = await Promise.all([
+  const [trusts, accounts, assetClasses] = await Promise.all([
     listTrusts(scope),
     listAccounts(scope, currentTrusts),
     listAssetClasses(scope),
-    showSubClientSelector ? listSubClients() : Promise.resolve<string[]>([]),
   ]);
+  const subClients = showSubClientSelector ? accessibleSubClients : [];
 
   const trustCrumb = summarise("entities", currentTrusts);
   // accounts in the dropdown are aggregated by physical custody account
@@ -103,9 +106,9 @@ export default async function Header() {
               {t.label}
             </Link>
           ))}
-          {user?.email ? (
+          {sessionUser?.email ? (
             <div className="border-l border-slate-200 pl-6">
-              <UserMenu email={user.email} />
+              <UserMenu email={sessionUser.email} />
             </div>
           ) : null}
         </nav>

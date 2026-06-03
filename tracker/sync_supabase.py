@@ -361,6 +361,19 @@ def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
             """,
             rows,
         )
+        # Mirror the family onto entity.sub_client_node_id — the column the
+        # RLS policy on entity reads (migration 028). entity_attribution is
+        # the source of truth and is 1:1 with entity on node_id; refreshing
+        # here keeps the denormalised column current as the tree changes.
+        # position_snapshot / transaction_log get theirs from a BEFORE INSERT
+        # trigger instead, since they're written by the daily sync.
+        cur.execute(
+            """UPDATE entity e
+                  SET sub_client_node_id = ea.sub_client_node_id
+                 FROM entity_attribution ea
+                WHERE ea.node_id = e.node_id
+                  AND e.sub_client_node_id IS DISTINCT FROM ea.sub_client_node_id"""
+        )
     conn.commit()
     log_sync(conn, "attribution", None, f"root={root_node_id}", len(rows))
     return len(rows)
