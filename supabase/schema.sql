@@ -534,8 +534,10 @@ ALTER TABLE public.user_family_access ENABLE ROW LEVEL SECURITY;
 -- policies on entity / entity_attribution / position_snapshot /
 -- transaction_log (plus authenticated-read on shared reference tables and
 -- admin-only on sync_log) are defined in
--- supabase/migrations/028_user_management_rls.sql. Apply that migration
--- after this schema on a fresh deploy. Admins are seeded there from the
--- @stbm.com.au email domain; map clients to families via user_family_access.
+-- supabase/migrations/028_user_management_rls.sql, with the policy
+-- predicates perf-tuned in 029 (wrap is_admin()/current_user_sub_clients()
+-- in (SELECT ...) so they evaluate once per statement, not per row). Apply
+-- both after this schema on a fresh deploy. Admins are seeded in 028 from
+-- the @stbm.com.au email domain; map clients via user_family_access.
 
 COMMIT;
