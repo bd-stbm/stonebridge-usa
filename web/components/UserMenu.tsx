@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 interface Props {
@@ -58,6 +59,14 @@ export default function UserMenu({ email }: Props) {
               {email}
             </div>
           </div>
+          <Link
+            href="/account/password"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+          >
+            Change password
+          </Link>
           <form action="/auth/signout" method="post">
             <button
               type="submit"
