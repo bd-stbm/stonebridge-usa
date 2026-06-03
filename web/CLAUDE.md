@@ -59,6 +59,7 @@ tracker/sync_supabase.py  ──UPSERT──▶  Supabase Postgres
 | `/performance` | Rebased portfolio-vs-benchmark line chart, returns-by-trust matrix. | `v_nav_monthly_by_account`, `v_external_flows`, `index_price_history` |
 | `/income` | TTM/YTD income KPIs, monthly bar (Dividends/Interest/Other), top payers, by-trust. | `v_income_monthly` |
 | `/transactions` | Every transaction with category chip, date range, search, type filter. | `v_transactions` |
+| `/admin/users` | **Admin-only.** Invite clients + assign families, set role, revoke. Uses the service-role client in admin server actions (`lib/admin-actions.ts`), each guarded by `requireAdmin()`. Page redirects non-admins. | Supabase Auth admin API, `app_user`, `user_family_access` |
 | `/login` | Email/password form. Middleware redirects unauthenticated users here. | (Supabase Auth) |
 
 The header sits above every authenticated page: logo top-left, nav tabs,

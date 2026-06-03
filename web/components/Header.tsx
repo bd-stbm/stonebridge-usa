@@ -106,6 +106,14 @@ export default async function Header() {
               {t.label}
             </Link>
           ))}
+          {sessionUser?.isAdmin ? (
+            <Link
+              href="/admin/users"
+              className="text-slate-600 hover:text-brand"
+            >
+              Users
+            </Link>
+          ) : null}
           {sessionUser?.email ? (
             <div className="border-l border-slate-200 pl-6">
               <UserMenu email={sessionUser.email} />
