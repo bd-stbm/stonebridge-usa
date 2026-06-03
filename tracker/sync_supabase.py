@@ -195,6 +195,17 @@ def mark_canonical_accounts(conn) -> None:
     conn.commit()
 
 
+# Nodes to surface as their OWN entity even though they aren't a trust /
+# shared vehicle / retirement wrapper by name. Given top precedence in the
+# leaf-to-root walk below, so an account beneath one of these attributes to
+# it rather than to a higher trust ancestor. "Family Investment Partners
+# Ltd" (102_93835) is a holding company under "The Family Trust" that holds
+# the J Safra Sarasin account (~$13.8M of listed securities + 2 Sarasin
+# funds); the client wants it shown as its own entity instead of rolled up
+# into The Family Trust (which is excluded from the Dyne US dashboard).
+FORCE_OWN_ENTITY_NODES = {"102_93835"}
+
+
 def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
     """Recompute entity_attribution from the current entity tree.
 
@@ -288,7 +299,8 @@ def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
             # 2010). For accounts not under any shared vehicle, the
             # first trust / retirement-wrapper ancestor wins.
             if entity_nid is None and cur_id != nid and (
-                cur_id in shared_vehicle_nodes
+                cur_id in FORCE_OWN_ENTITY_NODES
+                or cur_id in shared_vehicle_nodes
                 or _is_trust(alias, name)
                 or is_retirement_wrapper(alias, name)
             ):
