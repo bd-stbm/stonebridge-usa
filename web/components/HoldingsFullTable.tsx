@@ -256,6 +256,39 @@ function periodLabel(period: PeriodKey): string {
   return PERIODS.find(p => p.key === period)?.label ?? period.toUpperCase();
 }
 
+// Aggregate Modified Dietz across a set of (already gain-computed) rows.
+// Rows whose period gain isn't available (e.g. 1D without a yfinance
+// previous close) are skipped — including them with start_mv = 0 would
+// count their end MV as pure gain. Pulled out of the component so the
+// headline KPI (whole in-scope portfolio) and the footer (whatever's
+// currently shown) can aggregate over different row sets with one path.
+function aggregateTotals(
+  rows: Holding[],
+  rowGains: Map<Holding, RowGain>,
+): { gain_dollars: number | null; gain_pct: number | null } {
+  let startMv = 0;
+  let endMv = 0;
+  let flows = 0;
+  let income = 0;
+  let any = false;
+  for (const h of rows) {
+    const g = rowGains.get(h);
+    if (!g || !g.available) continue;
+    startMv += g.start_mv;
+    endMv += g.end_mv;
+    flows += g.flows;
+    income += g.income;
+    any = true;
+  }
+  if (!any) return { gain_dollars: null, gain_pct: null };
+  const gainDollars = (endMv - startMv) - flows + income;
+  const denom = startMv + 0.5 * flows;
+  return {
+    gain_dollars: gainDollars,
+    gain_pct: denom !== 0 ? gainDollars / denom : null,
+  };
+}
+
 interface Props {
   positions: Position[];
   reportingCcy: string;
@@ -297,11 +330,6 @@ export default function HoldingsFullTable({
     [periodGainsEntries],
   );
 
-  const totalNav = useMemo(
-    () => positions.reduce((s, p) => s + num(p.mv_reporting), 0),
-    [positions],
-  );
-
   const holdings = useMemo(
     () => aggregateAcrossAccounts(positions),
     [positions],
@@ -334,14 +362,26 @@ export default function HoldingsFullTable({
     );
   }, [openHoldings, query]);
 
-  // Per-row gain pieces for the currently-selected period. Computed
-  // once per (holdings, period) combination so the sort / render /
-  // totals loops below don't recompute it three times.
+  // Total value of what's actually shown — reflects both the open/closed
+  // filter and the search. Drives the summary line, the footer Totals row,
+  // and the per-row weight (so weights renormalise to the visible set and
+  // the footer's 100% stays consistent). Closed rows carry ~0 value, so
+  // with no search this equals the full open-portfolio NAV as before.
+  const totalNav = useMemo(
+    () => visibleHoldings.reduce((s, h) => s + h.mv_reporting, 0),
+    [visibleHoldings],
+  );
+
+  // Per-row gain pieces for the currently-selected period. Computed over
+  // the full open set (the search-independent superset of visibleHoldings)
+  // so the headline KPI can aggregate the whole in-scope portfolio while
+  // the table/footer aggregate the searched subset — both reading the
+  // same map.
   const rowGains = useMemo(() => {
     const map = new Map<Holding, RowGain>();
-    for (const h of visibleHoldings) map.set(h, rowGain(h, period, periodGains));
+    for (const h of openHoldings) map.set(h, rowGain(h, period, periodGains));
     return map;
-  }, [visibleHoldings, period, periodGains]);
+  }, [openHoldings, period, periodGains]);
 
   const sorted = useMemo(() => {
     const arr = visibleHoldings.slice();
@@ -378,39 +418,21 @@ export default function HoldingsFullTable({
     return arr;
   }, [visibleHoldings, sortKey, sortDir, totalNav, rowGains]);
 
-  // Aggregate Modified Dietz across the visible (post-aggregation)
-  // rows. Rows where the period gain isn't available (e.g. 1D for a
-  // security without a yfinance previous close) are excluded —
-  // including them with start_mv = 0 would double-count the end MV
-  // as a gain.
-  const totals = useMemo(() => {
-    let startMv = 0;
-    let endMv = 0;
-    let flows = 0;
-    let income = 0;
-    let any = false;
-    for (const h of visibleHoldings) {
-      const g = rowGains.get(h);
-      if (!g || !g.available) continue;
-      startMv += g.start_mv;
-      endMv += g.end_mv;
-      flows += g.flows;
-      income += g.income;
-      any = true;
-    }
-    if (!any) {
-      return { gain_dollars: null, gain_pct: null } as {
-        gain_dollars: number | null;
-        gain_pct: number | null;
-      };
-    }
-    const gainDollars = (endMv - startMv) - flows + income;
-    const denom = startMv + 0.5 * flows;
-    return {
-      gain_dollars: gainDollars,
-      gain_pct: denom !== 0 ? gainDollars / denom : null,
-    };
-  }, [visibleHoldings, rowGains]);
+  // Footer "Totals" row — aggregated over the rows actually shown, so it
+  // tracks both the open/closed filter and the search box.
+  const totals = useMemo(
+    () => aggregateTotals(visibleHoldings, rowGains),
+    [visibleHoldings, rowGains],
+  );
+
+  // Headline KPI gain — aggregated over the whole in-scope (open)
+  // portfolio, deliberately independent of the search box so the top
+  // tiles move only with the global filters (trust / account / asset
+  // class) and the period, not with what's typed into search.
+  const headlineTotals = useMemo(
+    () => aggregateTotals(openHoldings, rowGains),
+    [openHoldings, rowGains],
+  );
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -470,29 +492,33 @@ export default function HoldingsFullTable({
 
   return (
     <div className="space-y-4">
-      {/* KPI strip — the second tile re-renders with the selected period
-          so the headline gain stays in sync with the table footer's
-          totals row. Replaces the previous "Unrealized G/L" KPI which
-          relied on Masttro's totalCost (unreliable for accounts that
-          have been rebalanced — see Cornerstone Super where it showed
-          a spurious ~AUD 14M loss). */}
+      {/* KPI strip — represents the whole in-scope portfolio (global
+          filters + period), independent of the in-table search. The
+          second tile re-renders with the selected period. Replaces the
+          previous "Unrealized G/L" KPI which relied on Masttro's
+          totalCost (unreliable for accounts that have been rebalanced —
+          see Cornerstone Super where it showed a spurious ~AUD 14M loss). */}
       <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
         <KpiTile label="NAV" value={money(nav, reportingCcy)} />
         <KpiTile
           label={`${periodLabel(period)} gain`}
           value={
-            totals.gain_dollars != null
-              ? money(totals.gain_dollars, reportingCcy)
+            headlineTotals.gain_dollars != null
+              ? money(headlineTotals.gain_dollars, reportingCcy)
               : "—"
           }
           tone={
-            totals.gain_dollars == null
+            headlineTotals.gain_dollars == null
               ? "default"
-              : totals.gain_dollars >= 0
+              : headlineTotals.gain_dollars >= 0
                 ? "positive"
                 : "negative"
           }
-          hint={totals.gain_pct != null ? pct(totals.gain_pct, 2) : undefined}
+          hint={
+            headlineTotals.gain_pct != null
+              ? pct(headlineTotals.gain_pct, 2)
+              : undefined
+          }
         />
         <KpiTile label="Positions" value={positionsCount.toString()} />
         <KpiTile
