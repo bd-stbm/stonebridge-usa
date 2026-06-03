@@ -111,3 +111,25 @@ export async function revokeUser(userId: string): Promise<ActionResult> {
   revalidatePath("/admin/users");
   return { ok: true };
 }
+
+// Remove a user's MFA factors so they can re-enroll on next login. TOTP has
+// no self-serve recovery codes, so this is the recovery path when a client
+// loses their authenticator device. They'll be forced to set up a new one
+// at their next sign-in (MFA stays mandatory).
+export async function resetUserMfa(userId: string): Promise<ActionResult> {
+  await requireAdmin();
+  const admin = getSupabaseAdmin();
+  const { data, error } = await admin.auth.admin.getUserById(userId);
+  if (error || !data?.user) {
+    return { ok: false, error: error?.message ?? "User not found." };
+  }
+  for (const factor of data.user.factors ?? []) {
+    const { error: delErr } = await admin.auth.admin.mfa.deleteFactor({
+      id: factor.id,
+      userId,
+    });
+    if (delErr) return { ok: false, error: delErr.message };
+  }
+  revalidatePath("/admin/users");
+  return { ok: true };
+}

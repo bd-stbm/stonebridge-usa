@@ -59,6 +59,26 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
+  // Mandatory MFA gate. Every signed-in user must reach aal2 (passed a TOTP
+  // challenge this session) before seeing any app route. Auth routes are
+  // exempt so the enroll/challenge pages themselves stay reachable.
+  // getAuthenticatorAssuranceLevel is local (decodes the JWT + reads the
+  // session's embedded factors) — no extra network call, so aal2 users in
+  // steady state pay nothing here.
+  if (user && !isAuthRoute) {
+    const { data: aal } =
+      await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (aal && aal.currentLevel !== "aal2") {
+      const redirectUrl = req.nextUrl.clone();
+      redirectUrl.search = "";
+      // nextLevel === 'aal2' means a verified factor exists -> challenge it;
+      // otherwise the user has no factor yet -> enroll (MFA is mandatory).
+      redirectUrl.pathname =
+        aal.nextLevel === "aal2" ? "/auth/mfa" : "/auth/mfa/enroll";
+      return NextResponse.redirect(redirectUrl);
+    }
+  }
+
   return res;
 }
 

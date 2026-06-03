@@ -6,6 +6,7 @@ import clsx from "clsx";
 import type { FamilyOption, ManagedUser, UserRole } from "@/lib/admin-data";
 import {
   createClientUser,
+  resetUserMfa,
   revokeUser,
   saveUser,
   setUserPassword,
@@ -117,6 +118,21 @@ function UserRow({
     });
   };
 
+  const onResetMfa = () => {
+    if (
+      !confirm(
+        `Reset two-factor for ${user.email ?? "this user"}? They'll set up a new authenticator at their next login.`,
+      )
+    )
+      return;
+    startTransition(async () => {
+      setMsg(null);
+      const res = await resetUserMfa(user.id);
+      if (res.ok) window.alert("Two-factor reset. They'll re-enroll next login.");
+      else setMsg(res.error ?? "Failed to reset MFA.");
+    });
+  };
+
   return (
     <tr className="align-top">
       <td className="px-4 py-3">
@@ -172,6 +188,14 @@ function UserRow({
           className="ml-2 rounded border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40"
         >
           Set password
+        </button>
+        <button
+          type="button"
+          onClick={onResetMfa}
+          disabled={pending}
+          className="ml-2 rounded border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+        >
+          Reset MFA
         </button>
         {!isSelf && user.role != null ? (
           <button
