@@ -286,6 +286,8 @@ export default function HoldingsFullTable({
   // qty 0 in the latest snapshot). Both quantity and value zero = closed;
   // cash has null quantity (→ 0) but non-zero value, so it stays.
   const [openOnly, setOpenOnly] = useState(true);
+  // Free-text search over security identity (name / ticker / ISIN).
+  const [query, setQuery] = useState("");
 
   // Rehydrate the server-serialised entries into a Map once. The page
   // component sends an array of [key, value] tuples across the RSC
@@ -307,14 +309,30 @@ export default function HoldingsFullTable({
 
   // Closed positions = both quantity and value zero. Cash keeps its
   // value so it survives the filter.
-  const visibleHoldings = useMemo(
+  const openHoldings = useMemo(
     () =>
       openOnly
         ? holdings.filter(h => h.quantity !== 0 || h.mv_reporting !== 0)
         : holdings,
     [holdings, openOnly],
   );
-  const hiddenCount = holdings.length - visibleHoldings.length;
+  const hiddenCount = holdings.length - openHoldings.length;
+
+  // Apply the search on top of the open/closed filter. Matches a
+  // case-insensitive substring against the security's name, Masttro
+  // ticker, and ISIN. Folding it in here (rather than only hiding rows
+  // at render time) means the row count, footer totals and CSV export
+  // all reflect the current search.
+  const visibleHoldings = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return openHoldings;
+    return openHoldings.filter(
+      h =>
+        (h.asset_name?.toLowerCase().includes(needle) ?? false) ||
+        (h.ticker_masttro?.toLowerCase().includes(needle) ?? false) ||
+        (h.isin?.toLowerCase().includes(needle) ?? false),
+    );
+  }, [openHoldings, query]);
 
   // Per-row gain pieces for the currently-selected period. Computed
   // once per (holdings, period) combination so the sort / render /
@@ -508,11 +526,32 @@ export default function HoldingsFullTable({
               ))}
             </div>
           </div>
-          <div className="flex items-center gap-3 text-xs text-slate-500">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+            <div className="relative">
+              <svg
+                className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden="true"
+              >
+                <circle cx="9" cy="9" r="6" />
+                <path d="m17 17-3.5-3.5" strokeLinecap="round" />
+              </svg>
+              <input
+                type="search"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Search security, ticker, ISIN…"
+                aria-label="Search holdings"
+                className="w-52 rounded border border-slate-300 bg-white py-1 pl-8 pr-2 text-xs text-slate-700 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+              />
+            </div>
             <span>
               <span className="font-medium text-slate-700">{visibleHoldings.length}</span>{" "}
               {visibleHoldings.length === 1 ? "holding" : "holdings"}
-              {openOnly && hiddenCount > 0 ? (
+              {openOnly && hiddenCount > 0 && !query.trim() ? (
                 <span className="text-slate-400"> ({hiddenCount} closed hidden)</span>
               ) : null}
               {" · "}
@@ -584,7 +623,9 @@ export default function HoldingsFullTable({
             {sorted.length === 0 ? (
               <tr>
                 <td colSpan={COLUMNS.length} className="px-4 py-8 text-center text-sm text-slate-500">
-                  No positions in scope.
+                  {query.trim()
+                    ? `No holdings match “${query.trim()}”.`
+                    : "No positions in scope."}
                 </td>
               </tr>
             ) : (
