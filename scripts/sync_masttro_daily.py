@@ -113,6 +113,18 @@ def main() -> int:
                 "stale_feeds": len(stale),
             })
 
+        # Rebuild the carry-forward monthly NAV grid that backs the NAV-over-
+        # time + monthly-return charts. Inputs (position_snapshot) just changed,
+        # so this materialises each account's latest-on/before-month-end value
+        # per (month, account, asset_class). Cheap full recompute (~4s); the
+        # web reads it as a sub-200ms indexed aggregate instead of computing
+        # carry-forward live per request.
+        with conn.cursor() as cur:
+            cur.execute("SELECT public.refresh_nav_monthly_carryforward_grid() AS n")
+            grid_rows = cur.fetchone()["n"]
+        conn.commit()
+        print(f"\nNAV carry-forward grid refreshed: {grid_rows} rows")
+
     finally:
         conn.close()
         masttro.report()
