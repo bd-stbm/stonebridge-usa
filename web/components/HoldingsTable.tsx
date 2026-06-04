@@ -82,7 +82,11 @@ export default function HoldingsTable({
                 <td className="px-4 py-3 font-medium text-slate-900">{h.asset_name}</td>
                 <td className="px-4 py-3 text-slate-600">{h.ticker_masttro ?? "—"}</td>
                 <td className="px-4 py-3 text-right text-slate-700">
-                  {isCash ? "—" : h.quantity.toLocaleString()}
+                  {isCash
+                    ? "—"
+                    : h.quantity.toLocaleString(undefined, {
+                        maximumFractionDigits: 0,
+                      })}
                 </td>
                 <td className="px-4 py-3 text-right text-slate-700">
                   {isCash
