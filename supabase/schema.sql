@@ -268,6 +268,31 @@ CREATE TABLE IF NOT EXISTS public.sync_log (
 CREATE INDEX IF NOT EXISTS sync_log_ts_idx ON public.sync_log (sync_timestamp DESC);
 
 -- =============================================================================
+-- nav_monthly_carryforward_grid — derived cache (migration 035)
+-- =============================================================================
+-- Rebuildable cache, NOT source data: per (month_end, account, asset_class)
+-- carry-forward NAV (each account valued at its latest snapshot on/before the
+-- month-end). Fully repopulated from position_snapshot by
+-- refresh_nav_monthly_carryforward_grid() on every daily sync. Backs the
+-- NAV-over-time + monthly-return charts as a sub-200ms indexed aggregate.
+-- The family-scoped RLS policy, the refresh function, and the
+-- nav_monthly_carryforward() read function are defined in migration 035.
+CREATE TABLE IF NOT EXISTS public.nav_monthly_carryforward_grid (
+    month_end          DATE    NOT NULL,
+    account_node_id    TEXT    NOT NULL,
+    trust_alias        TEXT,
+    sub_client_alias   TEXT,
+    sub_client_node_id TEXT,   -- denormalised owning family for RLS
+    asset_class        TEXT    NOT NULL,
+    nav                NUMERIC NOT NULL,
+    PRIMARY KEY (month_end, account_node_id, asset_class)
+);
+CREATE INDEX IF NOT EXISTS nav_grid_subclient_month_idx
+    ON public.nav_monthly_carryforward_grid (sub_client_alias, month_end);
+CREATE INDEX IF NOT EXISTS nav_grid_scn_idx
+    ON public.nav_monthly_carryforward_grid (sub_client_node_id);
+
+-- =============================================================================
 -- Views — read models for the frontend / downstream apps
 -- =============================================================================
 
@@ -513,6 +538,7 @@ ALTER TABLE public.sync_log            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.index_definition       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.index_price_history    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.security_price_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.nav_monthly_carryforward_grid ENABLE ROW LEVEL SECURITY;
 
 -- User-management tables (Phase 2a, migration 028).
 CREATE TABLE IF NOT EXISTS public.app_user (
