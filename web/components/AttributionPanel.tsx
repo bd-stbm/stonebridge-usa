@@ -129,7 +129,7 @@ export default function AttributionPanel({
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <KpiCell label="Month" value={monthMeta.label} tone="default" />
+        <KpiCell label="Period" value={monthMeta.label} tone="default" />
         <KpiCell
           label="End NAV"
           value={
