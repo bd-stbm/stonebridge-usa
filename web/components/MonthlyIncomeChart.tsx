@@ -38,6 +38,8 @@ export default function MonthlyIncomeChart({ data, reportingCcy }: Props) {
               dataKey="month"
               tick={{ fontSize: 11, fill: "#64748b" }}
               tickFormatter={(d: string) => d.slice(0, 7)}
+              interval="preserveStartEnd"
+              minTickGap={24}
             />
             <YAxis
               tick={{ fontSize: 11, fill: "#64748b" }}

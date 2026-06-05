@@ -158,7 +158,7 @@ export default async function OverviewPage() {
   );
 
   return (
-    <main className="mx-auto max-w-7xl px-6 py-8">
+    <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-stretch">
         <div className="min-w-0 md:flex-[0.8]">
           <KpiTile

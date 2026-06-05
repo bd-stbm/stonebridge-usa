@@ -98,7 +98,7 @@ export default function AccountFilter({ accounts, currentAccounts }: Props) {
           type="button"
           onClick={() => setOpen(o => !o)}
           disabled={pending || accounts.length === 0}
-          className="flex items-center gap-2 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
+          className="flex items-center gap-2 rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
         >
           {pending ? (
             <>

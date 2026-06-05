@@ -25,7 +25,7 @@ export default async function AppLayout({
     <>
       <Header />
       {noAccess ? (
-        <main className="mx-auto max-w-7xl px-6 py-16">
+        <main className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
           <div className="rounded-lg border border-slate-200 bg-white p-8 text-center">
             <h1 className="text-lg font-semibold text-slate-900">
               Your access is being set up

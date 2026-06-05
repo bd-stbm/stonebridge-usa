@@ -13,7 +13,7 @@ function SkeletonBlock({ className }: { className: string }) {
 
 export default function Loading() {
   return (
-    <main className="mx-auto max-w-7xl px-6 py-8">
+    <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       <div className="mb-6 flex items-baseline justify-between">
         <SkeletonBlock className="h-7 w-40" />
         <SkeletonBlock className="h-4 w-56" />

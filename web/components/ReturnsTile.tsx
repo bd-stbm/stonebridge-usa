@@ -94,7 +94,7 @@ export default function ReturnsTile({
                 router.refresh();
               });
             }}
-            className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
+            className="rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-60"
           >
             {availableBenchmarks.map(b => (
               <option key={b.ticker} value={b.ticker}>

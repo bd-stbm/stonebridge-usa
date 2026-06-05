@@ -44,6 +44,8 @@ export default function NavChart({ data, reportingCcy = "USD" }: Props) {
               dataKey="snapshot_date"
               tick={{ fontSize: 11, fill: "#64748b" }}
               tickFormatter={(d: string) => d.slice(0, 7)}
+              interval="preserveStartEnd"
+              minTickGap={28}
             />
             <YAxis
               tick={{ fontSize: 11, fill: "#64748b" }}

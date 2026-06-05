@@ -77,7 +77,7 @@ export default async function Header() {
 
   return (
     <header className="border-b border-slate-200 bg-white">
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-4">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
         <Link href="/" className="flex items-center gap-3">
           <Image
             src="/stonebridge-logo.png"
@@ -126,7 +126,7 @@ export default async function Header() {
         </div>
       </div>
       <div className="border-t border-slate-100 bg-slate-50">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-end gap-4 px-6 py-2">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-end gap-4 px-4 py-2 sm:px-6">
           {showSubClientSelector ? (
             <SubClientSelector
               subClients={subClients}

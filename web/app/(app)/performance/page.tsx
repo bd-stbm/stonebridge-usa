@@ -258,7 +258,7 @@ export default async function PerformancePage() {
       .join(" · ") || "All entities under " + subClient;
 
   return (
-    <main className="mx-auto max-w-7xl space-y-8 px-6 py-8">
+    <main className="mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6">
       <div className="flex items-baseline justify-between">
         <h1 className="text-2xl font-semibold text-slate-900">Performance</h1>
         <span className="text-xs text-slate-500">

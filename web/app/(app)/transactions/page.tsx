@@ -80,7 +80,7 @@ export default async function TransactionsPage({
       .join(" · ") || "All entities under " + subClient;
 
   return (
-    <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+    <main className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6">
       <div className="flex items-baseline justify-between">
         <h1 className="text-2xl font-semibold text-slate-900">Transactions</h1>
         <span className="text-xs text-slate-500">{scopeNote}</span>
