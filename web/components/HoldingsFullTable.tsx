@@ -575,16 +575,33 @@ export default function HoldingsFullTable({
             </div>
             <button
               type="button"
+              role="switch"
+              aria-checked={openOnly}
               onClick={() => setOpenOnly(v => !v)}
-              className={clsx(
-                "shrink-0 rounded-md border px-3 py-1.5 text-xs font-medium transition",
-                openOnly
-                  ? "border-brand bg-brand text-white"
-                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
-              )}
-              aria-pressed={openOnly}
+              className="group inline-flex shrink-0 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
             >
-              Open positions only
+              <span>Open positions only</span>
+              <span
+                className={clsx(
+                  "relative h-4 w-7 rounded-full transition-colors",
+                  openOnly ? "bg-brand" : "bg-slate-300",
+                )}
+              >
+                <span
+                  className={clsx(
+                    "absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-all",
+                    openOnly ? "left-3.5" : "left-0.5",
+                  )}
+                />
+              </span>
+              <span
+                className={clsx(
+                  "w-6 text-left text-[10px] font-semibold uppercase tracking-wide",
+                  openOnly ? "text-brand" : "text-slate-400",
+                )}
+              >
+                {openOnly ? "On" : "Off"}
+              </span>
             </button>
           </div>
         </div>
