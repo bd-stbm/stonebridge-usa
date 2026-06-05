@@ -18,37 +18,105 @@ interface Props {
   currentUserId: string;
 }
 
-function FamilyChecklist({
+function CheckIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 12 12" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M2.5 6.5l2.2 2.2L9.5 3.8"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function FamilySelector({
   families,
   selected,
-  onToggle,
+  onChange,
   disabled,
 }: {
   families: FamilyOption[];
   selected: Set<string>;
-  onToggle: (nodeId: string) => void;
+  onChange: (next: Set<string>) => void;
   disabled?: boolean;
 }) {
+  const allOn = families.length > 0 && selected.size === families.length;
+
+  const toggle = (nodeId: string) => {
+    const next = new Set(selected);
+    next.has(nodeId) ? next.delete(nodeId) : next.add(nodeId);
+    onChange(next);
+  };
+  const setAll = (on: boolean) =>
+    onChange(on ? new Set(families.map(f => f.nodeId)) : new Set());
+
   return (
-    <div className="flex flex-wrap gap-x-4 gap-y-1">
-      {families.map(f => (
-        <label
-          key={f.nodeId}
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span
           className={clsx(
-            "inline-flex items-center gap-1.5 text-xs",
-            disabled ? "text-slate-400" : "text-slate-700",
+            "text-[11px]",
+            selected.size === 0 ? "text-amber-600" : "text-slate-400",
           )}
         >
-          <input
-            type="checkbox"
-            checked={selected.has(f.nodeId)}
-            onChange={() => onToggle(f.nodeId)}
-            disabled={disabled}
-            className="h-3.5 w-3.5 rounded border-slate-300 text-brand focus:ring-brand"
-          />
-          {f.alias}
-        </label>
-      ))}
+          {selected.size === 0
+            ? "No families — sees nothing"
+            : `${selected.size} of ${families.length} selected`}
+        </span>
+        <div className="flex items-center gap-1 text-[11px]">
+          <button
+            type="button"
+            onClick={() => setAll(true)}
+            disabled={disabled || allOn}
+            className="rounded px-1.5 py-0.5 font-medium text-brand hover:bg-brand-tint disabled:opacity-40"
+          >
+            All
+          </button>
+          <span className="text-slate-300">·</span>
+          <button
+            type="button"
+            onClick={() => setAll(false)}
+            disabled={disabled || selected.size === 0}
+            className="rounded px-1.5 py-0.5 font-medium text-slate-500 hover:bg-slate-100 disabled:opacity-40"
+          >
+            None
+          </button>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {families.map(f => {
+          const on = selected.has(f.nodeId);
+          return (
+            <button
+              key={f.nodeId}
+              type="button"
+              aria-pressed={on}
+              onClick={() => toggle(f.nodeId)}
+              disabled={disabled}
+              className={clsx(
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition",
+                on
+                  ? "border-brand bg-brand text-white shadow-sm"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-brand-light hover:text-brand",
+                disabled && "cursor-not-allowed opacity-50",
+              )}
+            >
+              <span
+                className={clsx(
+                  "grid h-3.5 w-3.5 place-items-center rounded-full border",
+                  on ? "border-white/60 bg-white/20" : "border-slate-300",
+                )}
+              >
+                {on ? <CheckIcon className="h-2.5 w-2.5 text-white" /> : null}
+              </span>
+              {f.alias}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -74,13 +142,6 @@ function UserRow({
     role !== (user.role ?? "client") ||
     selected.size !== user.familyNodeIds.length ||
     user.familyNodeIds.some(n => !selected.has(n));
-
-  const toggle = (nodeId: string) =>
-    setSelected(prev => {
-      const next = new Set(prev);
-      next.has(nodeId) ? next.delete(nodeId) : next.add(nodeId);
-      return next;
-    });
 
   const onSave = () =>
     startTransition(async () => {
@@ -163,10 +224,10 @@ function UserRow({
             Admins see all families.
           </span>
         ) : (
-          <FamilyChecklist
+          <FamilySelector
             families={families}
             selected={selected}
-            onToggle={toggle}
+            onChange={setSelected}
             disabled={pending}
           />
         )}
@@ -220,13 +281,6 @@ export default function UsersAdminPanel({ users, families, currentUserId }: Prop
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
 
-  const toggle = (nodeId: string) =>
-    setSelected(prev => {
-      const next = new Set(prev);
-      next.has(nodeId) ? next.delete(nodeId) : next.add(nodeId);
-      return next;
-    });
-
   const onCreate = () =>
     startTransition(async () => {
       setMsg(null);
@@ -254,53 +308,55 @@ export default function UsersAdminPanel({ users, families, currentUserId }: Prop
           Creates the login with a password you set (no email is sent). Pick
           the families they should see — you can change these any time below.
         </p>
-        <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end">
-          <div className="md:w-60">
-            <label className="block text-xs font-medium text-slate-600">
-              Email
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="client@example.com"
-              className="mt-1 w-full rounded border border-slate-300 px-2.5 py-1.5 text-sm text-slate-700 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
-            />
+        <div className="mt-3 space-y-3">
+          <div className="flex flex-col gap-3 md:flex-row md:items-end">
+            <div className="md:w-60">
+              <label className="block text-xs font-medium text-slate-600">
+                Email
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="client@example.com"
+                className="mt-1 w-full rounded border border-slate-300 px-2.5 py-1.5 text-sm text-slate-700 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+              />
+            </div>
+            <div className="md:w-48">
+              <label className="block text-xs font-medium text-slate-600">
+                Temporary password
+              </label>
+              <input
+                type="text"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="min 8 characters"
+                autoComplete="off"
+                className="mt-1 w-full rounded border border-slate-300 px-2.5 py-1.5 text-sm text-slate-700 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={onCreate}
+              disabled={pending || !email.trim() || password.length < 8}
+              className="rounded bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-40 md:ml-auto"
+            >
+              {pending ? "Creating…" : "Create client"}
+            </button>
           </div>
-          <div className="md:w-48">
-            <label className="block text-xs font-medium text-slate-600">
-              Temporary password
-            </label>
-            <input
-              type="text"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="min 8 characters"
-              autoComplete="off"
-              className="mt-1 w-full rounded border border-slate-300 px-2.5 py-1.5 text-sm text-slate-700 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
-            />
-          </div>
-          <div className="flex-1">
+          <div className="rounded-md border border-slate-200 bg-slate-50/60 p-3">
             <span className="block text-xs font-medium text-slate-600">
               Families
             </span>
             <div className="mt-1.5">
-              <FamilyChecklist
+              <FamilySelector
                 families={families}
                 selected={selected}
-                onToggle={toggle}
+                onChange={setSelected}
                 disabled={pending}
               />
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onCreate}
-            disabled={pending || !email.trim() || password.length < 8}
-            className="rounded bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {pending ? "Creating…" : "Create client"}
-          </button>
         </div>
         {msg ? (
           <div
