@@ -65,7 +65,7 @@ export default function HoldingsTable({
       <table className="min-w-full text-sm">
         <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
           <tr>
-            <th className="px-4 py-3 text-left">Asset</th>
+            <th className="sticky left-0 z-20 bg-slate-50 px-4 py-3 text-left">Asset</th>
             <th className="px-4 py-3 text-left">Ticker</th>
             <th className="px-4 py-3 text-right">Quantity</th>
             <th className="px-4 py-3 text-right">Price</th>
@@ -78,8 +78,10 @@ export default function HoldingsTable({
             const weight = totalNav > 0 ? h.mv_reporting / totalNav : 0;
             const isCash = h.asset_class === CASH_ASSET_CLASS;
             return (
-              <tr key={h.key} className="hover:bg-slate-50">
-                <td className="px-4 py-3 font-medium text-slate-900">{h.asset_name}</td>
+              <tr key={h.key} className="group hover:bg-slate-50">
+                <td className="sticky left-0 z-10 bg-white px-4 py-3 font-medium text-slate-900 group-hover:bg-slate-50">
+                  {h.asset_name}
+                </td>
                 <td className="px-4 py-3 text-slate-600">{h.ticker_masttro ?? "—"}</td>
                 <td className="px-4 py-3 text-right text-slate-700">
                   {isCash

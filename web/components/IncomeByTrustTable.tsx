@@ -19,7 +19,7 @@ export default function IncomeByTrustTable({ rows, reportingCcy }: Props) {
       <table className="min-w-full text-sm">
         <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
           <tr>
-            <th className="px-4 py-3 text-left">Entity</th>
+            <th className="sticky left-0 z-20 bg-slate-50 px-4 py-3 text-left">Entity</th>
             <th className="px-4 py-3 text-right">TTM income</th>
             <th className="px-4 py-3 text-right">YTD income</th>
             <th className="px-4 py-3 text-right">Last month</th>
@@ -38,8 +38,8 @@ export default function IncomeByTrustTable({ rows, reportingCcy }: Props) {
             rows.map(r => {
               const yld = r.current_nav > 0 ? r.ttm_income / r.current_nav : null;
               return (
-                <tr key={r.trust_alias} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-medium text-slate-900">
+                <tr key={r.trust_alias} className="group hover:bg-slate-50">
+                  <td className="sticky left-0 z-10 bg-white px-4 py-3 font-medium text-slate-900 group-hover:bg-slate-50">
                     {r.trust_alias}
                   </td>
                   <td className="px-4 py-3 text-right font-medium text-slate-900">

@@ -40,7 +40,9 @@ export default function PerformanceMatrix({
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-4 py-3 text-left">{rowLabel}</th>
+              <th className="sticky left-0 z-20 bg-slate-50 px-4 py-3 text-left">
+                {rowLabel}
+              </th>
               {PERIODS.map(p => (
                 <th key={p.key} className="px-4 py-3 text-right">
                   {p.label}
@@ -60,8 +62,8 @@ export default function PerformanceMatrix({
               </tr>
             ) : (
               rowKeys.map(key => (
-                <tr key={key} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-medium text-slate-900">
+                <tr key={key} className="group hover:bg-slate-50">
+                  <td className="sticky left-0 z-10 bg-white px-4 py-3 font-medium text-slate-900 group-hover:bg-slate-50">
                     {key}
                   </td>
                   {PERIODS.map(p => {
@@ -86,7 +88,7 @@ export default function PerformanceMatrix({
           {indexReturns && benchmarkLabel ? (
             <tfoot className="bg-slate-50 text-sm">
               <tr className="border-t border-slate-200">
-                <td className="px-4 py-3 text-xs font-medium uppercase tracking-wide text-slate-500">
+                <td className="sticky left-0 z-10 bg-slate-50 px-4 py-3 text-xs font-medium uppercase tracking-wide text-slate-500">
                   {benchmarkLabel}
                 </td>
                 {PERIODS.map(p => {

@@ -24,7 +24,7 @@ export default function TopPayersTable({ rows, reportingCcy, limit = 15 }: Props
       <table className="min-w-full text-sm">
         <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
           <tr>
-            <th className="px-4 py-3 text-left">Security</th>
+            <th className="sticky left-0 z-20 bg-slate-50 px-4 py-3 text-left">Security</th>
             <th className="px-4 py-3 text-left">Ticker</th>
             <th className="px-4 py-3 text-left">Asset class</th>
             <th className="px-4 py-3 text-right">TTM income</th>
@@ -44,8 +44,8 @@ export default function TopPayersTable({ rows, reportingCcy, limit = 15 }: Props
             top.map((p, i) => {
               const yld = p.current_mv > 0 ? p.ttm_income / p.current_mv : null;
               return (
-                <tr key={p.security_id ?? i} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-medium text-slate-900">
+                <tr key={p.security_id ?? i} className="group hover:bg-slate-50">
+                  <td className="sticky left-0 z-10 bg-white px-4 py-3 font-medium text-slate-900 group-hover:bg-slate-50">
                     {p.asset_name}
                   </td>
                   <td className="px-4 py-3 text-slate-600">
