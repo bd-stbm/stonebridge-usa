@@ -654,6 +654,10 @@ export default function HoldingsFullTable({
                     className={clsx(
                       "px-4 py-3 select-none cursor-pointer hover:bg-slate-100",
                       col.align === "right" ? "text-right" : "text-left",
+                      // Keep the Asset column pinned while the rest scrolls
+                      // horizontally on narrow screens.
+                      col.key === COLUMNS[0].key &&
+                        "sticky left-0 z-20 bg-slate-50",
                     )}
                     onClick={() => handleSort(col.key)}
                   >
@@ -691,8 +695,8 @@ export default function HoldingsFullTable({
                 const weight = totalNav > 0 ? h.mv_reporting / totalNav : 0;
                 const g = rowGains.get(h);
                 return (
-                  <tr key={h.key} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 font-medium text-slate-900">
+                  <tr key={h.key} className="group hover:bg-slate-50">
+                    <td className="sticky left-0 z-10 bg-white px-4 py-3 font-medium text-slate-900 group-hover:bg-slate-50">
                       {h.asset_name}
                       {h.security_type || h.account_count > 1 ? (
                         <div className="text-xs font-normal text-slate-400">
@@ -751,7 +755,7 @@ export default function HoldingsFullTable({
           {sorted.length > 0 ? (
             <tfoot className="bg-slate-50 text-sm">
               <tr className="border-t border-slate-200">
-                <td colSpan={4} className="px-4 py-3 text-xs font-medium uppercase tracking-wide text-slate-500">
+                <td colSpan={4} className="sticky left-0 z-10 bg-slate-50 px-4 py-3 text-xs font-medium uppercase tracking-wide text-slate-500">
                   Totals ({visibleHoldings.length} {visibleHoldings.length === 1 ? "holding" : "holdings"})
                 </td>
                 <td className="px-4 py-3" />

@@ -117,7 +117,7 @@ export default function AccountFilter({ accounts, currentAccounts }: Props) {
         </button>
       </label>
       {open ? (
-        <div className="absolute right-0 top-full z-20 mt-1 w-80 rounded-md border border-slate-200 bg-white shadow-lg">
+        <div className="absolute right-0 top-full z-20 mt-1 w-[min(20rem,calc(100vw-2rem))] rounded-md border border-slate-200 bg-white shadow-lg">
           <div className="max-h-72 overflow-auto p-1">
             <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50">
               <input

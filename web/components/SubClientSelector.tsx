@@ -87,7 +87,7 @@ export default function SubClientSelector({
         </button>
       </label>
       {open ? (
-        <div className="absolute right-0 top-full z-20 mt-1 w-80 rounded-md border border-slate-200 bg-white shadow-lg">
+        <div className="absolute right-0 top-full z-20 mt-1 w-[min(20rem,calc(100vw-2rem))] rounded-md border border-slate-200 bg-white shadow-lg">
           <div className="max-h-72 overflow-auto p-1">
             {subClients.map(sc => (
               <label

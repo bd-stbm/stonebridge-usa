@@ -20,6 +20,7 @@ import AccountFilter from "@/components/AccountFilter";
 import AssetClassFilter from "@/components/AssetClassFilter";
 import SubClientSelector from "@/components/SubClientSelector";
 import UserMenu from "@/components/UserMenu";
+import MobileNav from "@/components/MobileNav";
 
 const TABS = [
   { href: "/", label: "Overview" },
@@ -96,30 +97,33 @@ export default async function Header() {
             ) : null}
           </span>
         </Link>
-        <nav className="flex flex-wrap items-center gap-6 text-sm">
-          {TABS.map(t => (
-            <Link
-              key={t.href}
-              href={t.href}
-              className="text-slate-600 hover:text-brand"
-            >
-              {t.label}
-            </Link>
-          ))}
-          {sessionUser?.isAdmin ? (
-            <Link
-              href="/admin/users"
-              className="text-slate-600 hover:text-brand"
-            >
-              Users
-            </Link>
-          ) : null}
+        <div className="flex items-center gap-4">
+          <nav className="hidden items-center gap-6 text-sm md:flex">
+            {TABS.map(t => (
+              <Link
+                key={t.href}
+                href={t.href}
+                className="text-slate-600 hover:text-brand"
+              >
+                {t.label}
+              </Link>
+            ))}
+            {sessionUser?.isAdmin ? (
+              <Link
+                href="/admin/users"
+                className="text-slate-600 hover:text-brand"
+              >
+                Users
+              </Link>
+            ) : null}
+          </nav>
           {sessionUser?.email ? (
-            <div className="border-l border-slate-200 pl-6">
+            <div className="md:border-l md:border-slate-200 md:pl-4">
               <UserMenu email={sessionUser.email} />
             </div>
           ) : null}
-        </nav>
+          <MobileNav tabs={TABS} isAdmin={sessionUser?.isAdmin ?? false} />
+        </div>
       </div>
       <div className="border-t border-slate-100 bg-slate-50">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-end gap-4 px-6 py-2">

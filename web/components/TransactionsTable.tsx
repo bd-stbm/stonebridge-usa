@@ -264,6 +264,8 @@ export default function TransactionsTable({ transactions, from, to }: Props) {
                     className={clsx(
                       "px-4 py-3 select-none cursor-pointer hover:bg-slate-100",
                       col.align === "right" ? "text-right" : "text-left",
+                      col.key === COLUMNS[0].key &&
+                        "sticky left-0 z-20 bg-slate-50",
                     )}
                     onClick={() => handleSort(col.key)}
                   >
@@ -298,8 +300,8 @@ export default function TransactionsTable({ transactions, from, to }: Props) {
                 const amount = num(t.net_amount_reporting);
                 const isFlow = t.is_external_flow;
                 return (
-                  <tr key={t.transaction_id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap align-top">
+                  <tr key={t.transaction_id} className="group hover:bg-slate-50">
+                    <td className="sticky left-0 z-10 bg-white px-4 py-3 text-slate-600 whitespace-nowrap align-top group-hover:bg-slate-50">
                       {t.transaction_date ?? "—"}
                     </td>
                     <td className="px-4 py-3 align-top">
