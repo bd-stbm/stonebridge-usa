@@ -344,7 +344,6 @@ export default function HoldingsFullTable({
         : holdings,
     [holdings, openOnly],
   );
-  const hiddenCount = holdings.length - openHoldings.length;
 
   // Apply the search on top of the open/closed filter. Matches a
   // case-insensitive substring against the security's name, Masttro
@@ -529,22 +528,22 @@ export default function HoldingsFullTable({
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-white p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Gain period
             </span>
-            <div className="flex gap-1">
+            <div className="inline-flex rounded-md border border-slate-200 bg-slate-50 p-0.5">
               {PERIODS.map(p => (
                 <button
                   key={p.key}
                   type="button"
                   onClick={() => setPeriod(p.key)}
                   className={clsx(
-                    "rounded px-2 py-0.5 text-xs font-medium",
+                    "rounded px-2.5 py-1 text-xs font-medium transition",
                     p.key === period
-                      ? "bg-brand text-white"
-                      : "text-slate-500 hover:bg-slate-100",
+                      ? "bg-white text-brand shadow-sm"
+                      : "text-slate-500 hover:text-slate-700",
                   )}
                 >
                   {p.label}
@@ -552,10 +551,10 @@ export default function HoldingsFullTable({
               ))}
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
-            <div className="relative">
+          <div className="flex items-center gap-3">
+            <div className="relative w-full sm:w-80">
               <svg
-                className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
                 viewBox="0 0 20 20"
                 fill="none"
                 stroke="currentColor"
@@ -571,25 +570,14 @@ export default function HoldingsFullTable({
                 onChange={e => setQuery(e.target.value)}
                 placeholder="Search security, ticker, ISIN…"
                 aria-label="Search holdings"
-                className="w-52 rounded border border-slate-300 bg-white py-1 pl-8 pr-2 text-xs text-slate-700 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+                className="w-full rounded-md border border-slate-300 bg-white py-1.5 pl-9 pr-3 text-sm text-slate-700 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
               />
             </div>
-            <span>
-              <span className="font-medium text-slate-700">{visibleHoldings.length}</span>{" "}
-              {visibleHoldings.length === 1 ? "holding" : "holdings"}
-              {openOnly && hiddenCount > 0 && !query.trim() ? (
-                <span className="text-slate-400"> ({hiddenCount} closed hidden)</span>
-              ) : null}
-              {" · "}
-              <span className="font-medium text-slate-700">
-                {money(totalNav, reportingCcy)}
-              </span>
-            </span>
             <button
               type="button"
               onClick={() => setOpenOnly(v => !v)}
               className={clsx(
-                "rounded border px-2.5 py-1 text-xs font-medium",
+                "shrink-0 rounded-md border px-3 py-1.5 text-xs font-medium transition",
                 openOnly
                   ? "border-brand bg-brand text-white"
                   : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
@@ -598,20 +586,41 @@ export default function HoldingsFullTable({
             >
               Open positions only
             </button>
-            <button
-              type="button"
-              onClick={handleExportCsv}
-              disabled={sorted.length === 0}
-              className="rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Export CSV
-            </button>
           </div>
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-        <table className="min-w-full text-sm">
+      <div className="rounded-lg border border-slate-200 bg-white">
+        <div className="flex items-center justify-end border-b border-slate-100 px-4 py-2.5">
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            disabled={sorted.length === 0}
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <svg
+              className="h-3.5 w-3.5"
+              viewBox="0 0 20 20"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              aria-hidden="true"
+            >
+              <path
+                d="M10 3v9m0 0 3.25-3.25M10 12 6.75 8.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M4 14v2a1.5 1.5 0 0 0 1.5 1.5h9A1.5 1.5 0 0 0 16 16v-2"
+                strokeLinecap="round"
+              />
+            </svg>
+            Export CSV
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
             <tr>
               {COLUMNS.map(col => {
@@ -765,7 +774,8 @@ export default function HoldingsFullTable({
               </tr>
             </tfoot>
           ) : null}
-        </table>
+          </table>
+        </div>
       </div>
     </div>
   );
