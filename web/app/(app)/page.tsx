@@ -152,9 +152,6 @@ export default async function OverviewPage() {
     return [...monthlyNavSeries, { snapshot_date: todayIso, nav: endNav }];
   })();
 
-  const navFromHistory =
-    navSeries.length > 0 ? navSeries[navSeries.length - 1].nav : null;
-
   console.log(
     `[page] Overview total ${Date.now() - _renderStart}ms ` +
       `(${trusts.length}t,${accounts.length}a,${assetClasses.length}c)`,
@@ -189,14 +186,7 @@ export default async function OverviewPage() {
       </section>
 
       <section className="mt-8">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-slate-900">Top holdings</h2>
-          <span className="text-xs text-slate-500">
-            {positions.length} positions
-            {navFromHistory != null &&
-              ` • history NAV ${money(navFromHistory, kpis.reporting_ccy)}`}
-          </span>
-        </div>
+        <h2 className="mb-3 text-base font-semibold text-slate-900">Top holdings</h2>
         <HoldingsTable positions={positions} limit={10} reportingCcy={kpis.reporting_ccy} />
       </section>
     </main>

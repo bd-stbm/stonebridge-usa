@@ -125,8 +125,8 @@ export default function ReturnsTile({
         </div>
       </div>
 
-      <div className="mt-4 flex items-center justify-between gap-4">
-        <div className="flex items-baseline gap-3">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+        <div className="flex min-w-0 items-baseline gap-3">
           <span
             className={clsx(
               "text-4xl font-semibold tracking-tight",
@@ -154,9 +154,9 @@ export default function ReturnsTile({
         </div>
 
         {showBenchmark ? (
-          <div className="border-l border-slate-200 pl-4 text-right">
-            <div className="text-xs uppercase tracking-wide text-slate-400">
-              vs {benchmark!.name}
+          <div className="shrink-0 border-l border-slate-200 pl-4 text-right">
+            <div className="whitespace-nowrap text-xs uppercase tracking-wide text-slate-400">
+              vs {indexLabel(benchmark!.ticker)}
             </div>
             <div
               className={clsx(
