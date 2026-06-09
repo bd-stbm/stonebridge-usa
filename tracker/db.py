@@ -8,12 +8,18 @@ the secret is injected by GitHub Actions. Use the Supavisor pooler URL
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 
 import psycopg
 from psycopg.rows import dict_row
 
 ENV_FILE = Path(__file__).resolve().parent.parent / ".env.local"
+
+# Fail fast instead of hanging on the OS default when the pooler is saturated,
+# and retry a couple of times to ride out transient Supavisor hiccups.
+CONNECT_TIMEOUT = int(os.environ.get("DB_CONNECT_TIMEOUT", "15"))
+CONNECT_ATTEMPTS = int(os.environ.get("DB_CONNECT_ATTEMPTS", "3"))
 
 
 def _load_env_file(path: Path = ENV_FILE) -> None:
@@ -40,7 +46,25 @@ def connect():
             "Set SUPABASE_POOL_URL (preferred) or SUPABASE_DB_URL in .env.local "
             "or as a GitHub Actions secret."
         )
-    return psycopg.connect(url, row_factory=dict_row, autocommit=False)
+    # prepare_threshold=None disables client-side prepared statements — REQUIRED
+    # on the transaction-mode pooler (port 6543), which multiplexes connections
+    # and otherwise errors with "prepared statement already exists". Harmless on
+    # session mode (5432).
+    last_exc: Exception | None = None
+    for attempt in range(1, CONNECT_ATTEMPTS + 1):
+        try:
+            return psycopg.connect(
+                url,
+                row_factory=dict_row,
+                autocommit=False,
+                connect_timeout=CONNECT_TIMEOUT,
+                prepare_threshold=None,
+            )
+        except psycopg.OperationalError as exc:  # timeouts, transient pooler errors
+            last_exc = exc
+            if attempt < CONNECT_ATTEMPTS:
+                time.sleep(2 * attempt)  # 2s, 4s backoff
+    raise last_exc  # type: ignore[misc]
 
 
 def log_sync(conn, sync_type: str, scope: str | None,
