@@ -23,7 +23,6 @@ import {
   getSelectedVehicles,
 } from "@/lib/trust-filter";
 import { getActiveSubClient } from "@/lib/session";
-import VehicleScopeNote from "@/components/VehicleScopeNote";
 import {
   computeAllPeriodReturns,
   computeIndexReturnsForAllPeriods,
@@ -99,12 +98,12 @@ export default async function PerformancePage() {
     returns,
     attribution,
   ] = await Promise.all([
-    getLatestPositions(subClient, trusts, accounts, assetClasses),
-    getNavSeries(subClient, trusts, accounts, assetClasses),
-    getNavSeriesByTrust(subClient, trusts, accounts, assetClasses),
+    getLatestPositions(subClient, trusts, accounts, assetClasses, vehicles),
+    getNavSeries(subClient, trusts, accounts, assetClasses, vehicles),
+    getNavSeriesByTrust(subClient, trusts, accounts, assetClasses, vehicles),
     listIndices(),
-    getPeriodReturns(subClient, trusts, accounts, assetClasses, {}),
-    getMonthlySecurityAttribution(subClient, trusts, accounts, assetClasses, fromMonth),
+    getPeriodReturns(subClient, trusts, accounts, assetClasses, vehicles, {}),
+    getMonthlySecurityAttribution(subClient, trusts, accounts, assetClasses, fromMonth, vehicles),
   ]);
 
   const benchmarkFromDate =
@@ -120,8 +119,8 @@ export default async function PerformancePage() {
   // getPeriodReturns: external flows when no asset_class filter; per-class
   // flows when filter is active (since external deposits aren't class-typed).
   const [flowsByTrust, flowsByClass] = await Promise.all([
-    getFlowsByTrust(subClient, trusts, accounts, benchmarkFromDate, assetClasses),
-    getFlowsByAssetClass(subClient, trusts, accounts, benchmarkFromDate, assetClasses),
+    getFlowsByTrust(subClient, trusts, accounts, benchmarkFromDate, assetClasses, vehicles),
+    getFlowsByAssetClass(subClient, trusts, accounts, benchmarkFromDate, assetClasses, vehicles),
   ]);
 
   // --- Monthly portfolio returns (drives the new bar chart) ----------------
@@ -214,7 +213,7 @@ export default async function PerformancePage() {
   const matrixTargets = matrixPeriods.map(p => computePeriodStart(p, today));
   const carryforwardByTarget = await Promise.all(
     matrixTargets.map(date =>
-      getNavCarryforwardByTrust(subClient, trusts, accounts, date, assetClasses),
+      getNavCarryforwardByTrust(subClient, trusts, accounts, date, assetClasses, vehicles),
     ),
   );
 
@@ -262,7 +261,6 @@ export default async function PerformancePage() {
 
   return (
     <main className="mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6">
-      <VehicleScopeNote vehicles={vehicles} />
       <div className="flex items-baseline justify-between">
         <h1 className="text-2xl font-semibold text-slate-900">Performance</h1>
         <span className="text-xs text-slate-500">

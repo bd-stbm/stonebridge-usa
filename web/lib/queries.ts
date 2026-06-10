@@ -525,11 +525,12 @@ export async function getHoldingsPeriodGains(
   trusts: string[] = [],
   accounts: string[] = [],
   assetClasses: string[] = [],
+  vehicles: string[] = [],
   endDate: Date = new Date(),
 ): Promise<HoldingsPeriodGainMap> {
   const effective = effectiveAssetClasses(assetClasses);
   return timed(
-    `getHoldingsPeriodGains(${trusts.length}t,${accounts.length}a,${effective.length}c)`,
+    `getHoldingsPeriodGains(${trusts.length}t,${accounts.length}a,${effective.length}c,${vehicles.length}v)`,
     async () => {
       const excluded = excludedEntities(subClient);
       const endIso = endDate.toISOString().slice(0, 10);
@@ -554,6 +555,7 @@ export async function getHoldingsPeriodGains(
           p_accounts:        accounts.length ? accounts : null,
           p_asset_classes:   effective,
           p_excluded_trusts: excluded.length ? excluded : null,
+          p_vehicles:        vehicles.length ? vehicles : null,
           p_end_date:        endIso,
           p_mtd_start:       mtdStart,
           p_ytd_start:       ytdStart,
@@ -593,10 +595,16 @@ export async function getNavSeries(
   trusts: string[] = [],
   accounts: string[] = [],
   assetClasses: string[] = [],
+  vehicles: string[] = [],
 ): Promise<NavPoint[]> {
   const effective = effectiveAssetClasses(assetClasses);
-  return timed(`getNavSeries(${trusts.length}t,${accounts.length}a,${effective.length}c)`, async () => {
+  return timed(`getNavSeries(${trusts.length}t,${accounts.length}a,${effective.length}c,${vehicles.length}v)`, async () => {
     const excluded = excludedEntities(subClient);
+
+    // The carry-forward grid RPC has no vehicle dimension, so when a vehicle is
+    // selected skip it and use the view path below (v_nav_monthly_by_asset_class
+    // carries vehicle_alias). The grid stays the fast path for the common case.
+    if (vehicles.length === 0) {
 
     // Per-account carry-forward monthly series (migration 033). Each month-end
     // values every account at its latest snapshot ON OR BEFORE that month-end,
@@ -623,10 +631,11 @@ export async function getNavSeries(
         .map(r => ({ snapshot_date: r.month_end, nav: Number(r.nav ?? 0) }))
         .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
     }
-    const cfCode = (cfError as { code?: string }).code;
-    if (cfCode !== "PGRST202" && cfCode !== "PGRST203") throw cfError;
-    // Migration 033 not applied yet — fall back to the date-exact view.
-    console.log(`[q] nav_monthly_carryforward fallback: ${cfCode} ${cfError.message}`);
+      const cfCode = (cfError as { code?: string }).code;
+      if (cfCode !== "PGRST202" && cfCode !== "PGRST203") throw cfError;
+      // Migration 033 not applied yet — fall back to the date-exact view.
+      console.log(`[q] nav_monthly_carryforward fallback: ${cfCode} ${cfError.message}`);
+    }
 
     // Query v_nav_monthly_by_asset_class with an explicit .in() filter on
     // asset_class. The cheaper v_nav_monthly_by_account path was dropped (it
@@ -642,6 +651,7 @@ export async function getNavSeries(
       .gte("snapshot_date", NAV_HISTORY_FLOOR);
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
+    if (vehicles.length) q = q.in("vehicle_alias", vehicles);
     if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
     const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
@@ -686,13 +696,17 @@ export async function getPeriodReturns(
   trusts: string[] = [],
   accounts: string[] = [],
   assetClasses: string[] = [],
+  vehicles: string[] = [],
   overrides: PeriodReturnOverrides = {},
 ): Promise<Record<PeriodKey, PeriodReturn>> {
   const effective = effectiveAssetClasses(assetClasses);
   const userFiltered = userHasAssetClassFilter(assetClasses);
-  return timed(`getPeriodReturns(${trusts.length}t,${accounts.length}a,${effective.length}c)`, async () => {
+  // A vehicle selection, like a class selection, sources flows from per-slice
+  // transactions (v_external_flows has no vehicle dimension).
+  const useTxnFlows = userFiltered || vehicles.length > 0;
+  return timed(`getPeriodReturns(${trusts.length}t,${accounts.length}a,${effective.length}c,${vehicles.length}v)`, async () => {
     const navs =
-      overrides.navs ?? (await getNavSeries(subClient, trusts, accounts, assetClasses));
+      overrides.navs ?? (await getNavSeries(subClient, trusts, accounts, assetClasses, vehicles));
     if (navs.length === 0) {
       return computeAllPeriodReturns([], [], overrides);
     }
@@ -711,7 +725,7 @@ export async function getPeriodReturns(
     //     classes). External cash flows drop out because they have no
     //     asset_class — landing in cash before being deployed.
     let flows: Flow[];
-    if (!userFiltered) {
+    if (!useTxnFlows) {
       let q = getSupabaseServer()
         .from("v_external_flows")
         .select(
@@ -741,6 +755,7 @@ export async function getPeriodReturns(
         accounts,
         earliest,
         assetClasses,
+        vehicles,
       );
       flows = [];
       for (const ac of effective) {
@@ -763,9 +778,10 @@ export async function getNavSeriesByTrust(
   trusts: string[] = [],
   accounts: string[] = [],
   assetClasses: string[] = [],
+  vehicles: string[] = [],
 ): Promise<Record<string, NavPoint[]>> {
   const effective = effectiveAssetClasses(assetClasses);
-  return timed(`getNavSeriesByTrust(${trusts.length}t,${accounts.length}a,${effective.length}c)`, async () => {
+  return timed(`getNavSeriesByTrust(${trusts.length}t,${accounts.length}a,${effective.length}c,${vehicles.length}v)`, async () => {
     // Always query v_nav_monthly_by_asset_class with .in() filter on
     // asset_class. Drops the previous Path A (v_nav_monthly_by_account)
     // which couldn't exclude hidden classes since it lacks the column.
@@ -778,6 +794,7 @@ export async function getNavSeriesByTrust(
       .in("asset_class", effective);
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
+    if (vehicles.length) q = q.in("vehicle_alias", vehicles);
     // Two .not()s on one builder otherwise hit TS's deep-instantiation limit.
     if (excluded.length)
       q = (q as unknown as {
@@ -820,17 +837,19 @@ export async function getFlowsByTrust(
   accounts: string[] = [],
   fromDate: string = "2020-01-01",
   assetClasses: string[] = [],
+  vehicles: string[] = [],
 ): Promise<Record<string, Flow[]>> {
   const effective = effectiveAssetClasses(assetClasses);
   const userFiltered = userHasAssetClassFilter(assetClasses);
-  return timed(`getFlowsByTrust(${trusts.length}t,${accounts.length}a,${effective.length}c)`, async () => {
-    // User has no class selection → external flows (trust-level
+  return timed(`getFlowsByTrust(${trusts.length}t,${accounts.length}a,${effective.length}c,${vehicles.length}v)`, async () => {
+    // User has no class/vehicle selection → external flows (trust-level
     // deposits/withdrawals). They route through cash which is visible,
     // so they're the right thing to subtract from the visible NAV.
-    // User picked specific classes → per-class flows from v_transactions
-    // for the selected (∩ visible) classes, sign-flipped to "into the
-    // class", grouped by trust.
-    const useClassFlows = userFiltered;
+    // User picked specific classes OR a vehicle → per-class/per-vehicle flows
+    // from v_transactions, sign-flipped to "into the slice", grouped by trust.
+    // (v_external_flows has no vehicle_alias, and per-transaction flows are the
+    // same model asset-class uses.)
+    const useClassFlows = userFiltered || vehicles.length > 0;
     const view = useClassFlows ? "v_transactions" : "v_external_flows";
     let q = getSupabaseServer()
       .from(view)
@@ -850,6 +869,7 @@ export async function getFlowsByTrust(
     }
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
+    if (vehicles.length) q = q.in("vehicle_alias", vehicles);
     const excluded = excludedEntities(subClient);
     // Two .not()s on one builder otherwise hit TS's deep-instantiation limit.
     if (excluded.length)
@@ -904,9 +924,10 @@ export async function getFlowsByAssetClass(
   accounts: string[] = [],
   fromDate: string = "2020-01-01",
   assetClasses: string[] = [],
+  vehicles: string[] = [],
 ): Promise<Record<string, Flow[]>> {
   const effective = effectiveAssetClasses(assetClasses);
-  return timed(`getFlowsByAssetClass(${trusts.length}t,${accounts.length}a,${effective.length}c)`, async () => {
+  return timed(`getFlowsByAssetClass(${trusts.length}t,${accounts.length}a,${effective.length}c,${vehicles.length}v)`, async () => {
     let q = getSupabaseServer()
       .from("v_transactions")
       .select("transaction_date, asset_class, net_amount_reporting")
@@ -921,6 +942,7 @@ export async function getFlowsByAssetClass(
       ]);
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
+    if (vehicles.length) q = q.in("vehicle_alias", vehicles);
     const excluded = excludedEntities(subClient);
     if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
     q = applyAssetClassFilter(q, effective);
@@ -954,9 +976,10 @@ export async function getNavSeriesByAssetClass(
   trusts: string[] = [],
   accounts: string[] = [],
   assetClasses: string[] = [],
+  vehicles: string[] = [],
 ): Promise<Record<string, NavPoint[]>> {
   const effective = effectiveAssetClasses(assetClasses);
-  return timed(`getNavSeriesByAssetClass(${trusts.length}t,${accounts.length}a,${effective.length}c)`, async () => {
+  return timed(`getNavSeriesByAssetClass(${trusts.length}t,${accounts.length}a,${effective.length}c,${vehicles.length}v)`, async () => {
     // Per-(snapshot_date, account, asset_class) rows from the view. We
     // aggregate across accounts in JS, keyed by asset_class, to get one NAV
     // series per class for the Performance page's per-class matrix and
@@ -969,6 +992,7 @@ export async function getNavSeriesByAssetClass(
       .in("asset_class", effective);
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
+    if (vehicles.length) q = q.in("vehicle_alias", vehicles);
     const excluded = excludedEntities(subClient);
     if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
     const { data, error } = await q.limit(LIMIT_LARGE);
@@ -1210,9 +1234,10 @@ export async function getNavCarryforwardByTrust(
   accounts: string[],
   targetDate: string,
   assetClasses: string[] = [],
+  vehicles: string[] = [],
 ): Promise<Record<string, { nav: number; anchorDate: string }>> {
   const effective = effectiveAssetClasses(assetClasses);
-  const label = `nav_carryforward_by_trust(${targetDate},${effective.length}c)`;
+  const label = `nav_carryforward_by_trust(${targetDate},${effective.length}c,${vehicles.length}v)`;
   return timed(label, async () => {
     const excluded = excludedEntities(subClient);
     const { data, error } = await getSupabaseServer()
@@ -1223,6 +1248,7 @@ export async function getNavCarryforwardByTrust(
         p_target_date:     targetDate,
         p_asset_classes:   effective,
         p_excluded_trusts: excluded.length ? excluded : null,
+        p_vehicles:        vehicles.length ? vehicles : null,
       })
       .limit(LIMIT_LARGE);
     if (error) {
@@ -1260,9 +1286,10 @@ export async function getNavCarryforward(
   accounts: string[],
   targetDate: string,
   assetClasses: string[] = [],
+  vehicles: string[] = [],
 ): Promise<NavAnchor | null> {
   const effective = effectiveAssetClasses(assetClasses);
-  const label = `nav_carryforward(${targetDate},${effective.length}c)`;
+  const label = `nav_carryforward(${targetDate},${effective.length}c,${vehicles.length}v)`;
   return timed(label, async () => {
     const excluded = excludedEntities(subClient);
     const { data, error } = await getSupabaseServer().rpc("nav_carryforward", {
@@ -1272,6 +1299,7 @@ export async function getNavCarryforward(
       p_target_date:     targetDate,
       p_asset_classes:   effective,
       p_excluded_trusts: excluded.length ? excluded : null,
+      p_vehicles:        vehicles.length ? vehicles : null,
     });
     if (error) {
       const code = (error as { code?: string }).code;
@@ -1320,10 +1348,11 @@ export async function getMonthlySecurityAttribution(
   accounts: string[] = [],
   assetClasses: string[] = [],
   fromMonth: string = "2020-01-01",
+  vehicles: string[] = [],
 ): Promise<MonthlyAttributionRow[]> {
   const effective = effectiveAssetClasses(assetClasses);
   return timed(
-    `getMonthlySecurityAttribution(${trusts.length}t,${accounts.length}a,${effective.length}c)`,
+    `getMonthlySecurityAttribution(${trusts.length}t,${accounts.length}a,${effective.length}c,${vehicles.length}v)`,
     async () => {
       const excluded = excludedEntities(subClient);
       // p_top_per_month bounds the response server-side at ~30 rows per
@@ -1341,6 +1370,7 @@ export async function getMonthlySecurityAttribution(
           p_from_month:      fromMonth,
           p_excluded_trusts: excluded.length ? excluded : null,
           p_top_per_month:   ATTRIBUTION_TOP_PER_MONTH,
+          p_vehicles:        vehicles.length ? vehicles : null,
         })
         .limit(LIMIT_LARGE);
       if (error) throw error;

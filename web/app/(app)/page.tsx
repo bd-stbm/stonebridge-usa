@@ -20,7 +20,6 @@ import {
   getSelectedVehicles,
 } from "@/lib/trust-filter";
 import { getActiveSubClient } from "@/lib/session";
-import VehicleScopeNote from "@/components/VehicleScopeNote";
 import {
   computeIndexReturnsForAllPeriods,
   computePeriodStart,
@@ -52,13 +51,13 @@ export default async function OverviewPage() {
   const target1Y = computePeriodStart("1y", today);
   const [positions, navSeries, indices, navMtd, navYtd, nav6M, nav1Y] =
     await Promise.all([
-      getLatestPositions(subClient, trusts, accounts, assetClasses),
-      getNavSeries(subClient, trusts, accounts, assetClasses),
+      getLatestPositions(subClient, trusts, accounts, assetClasses, vehicles),
+      getNavSeries(subClient, trusts, accounts, assetClasses, vehicles),
       listIndices(),
-      getNavCarryforward(subClient, trusts, accounts, targetMtd, assetClasses),
-      getNavCarryforward(subClient, trusts, accounts, targetYtd, assetClasses),
-      getNavCarryforward(subClient, trusts, accounts, target6M, assetClasses),
-      getNavCarryforward(subClient, trusts, accounts, target1Y, assetClasses),
+      getNavCarryforward(subClient, trusts, accounts, targetMtd, assetClasses, vehicles),
+      getNavCarryforward(subClient, trusts, accounts, targetYtd, assetClasses, vehicles),
+      getNavCarryforward(subClient, trusts, accounts, target6M, assetClasses, vehicles),
+      getNavCarryforward(subClient, trusts, accounts, target1Y, assetClasses, vehicles),
     ]);
   const kpis = computeKpis(positions);
 
@@ -87,7 +86,7 @@ export default async function OverviewPage() {
       .toISOString()
       .slice(0, 10);
   const [returns, indexPrices] = await Promise.all([
-    getPeriodReturns(subClient, trusts, accounts, assetClasses, {
+    getPeriodReturns(subClient, trusts, accounts, assetClasses, vehicles, {
       endNav,
       endNavYesterday,
       startNavByPeriod,
@@ -162,11 +161,6 @@ export default async function OverviewPage() {
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-      {vehicles.length > 0 ? (
-        <div className="mb-4">
-          <VehicleScopeNote vehicles={vehicles} />
-        </div>
-      ) : null}
       <div className="flex flex-col gap-4 md:flex-row md:items-stretch">
         <div className="min-w-0 md:flex-[0.8]">
           <KpiTile
