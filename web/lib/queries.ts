@@ -412,8 +412,10 @@ export async function listVehicles(
   subClient: string = DEFAULT_SUB_CLIENT,
 ): Promise<string[]> {
   return timed("listVehicles", async () => {
+    // Read from the combined net-worth view so the filter covers both books:
+    // alt SPVs AND listed vehicles like "Dendell LLC - Dell & Broadcom".
     const { data, error } = await getSupabaseServer()
-      .from("v_latest_alt_positions")
+      .from("v_net_worth_positions")
       .select("vehicle_alias")
       .eq("sub_client_alias", subClient)
       .not("vehicle_alias", "is", null)

@@ -78,9 +78,11 @@ CREATE TABLE IF NOT EXISTS public.entity_attribution (
     node_id              TEXT PRIMARY KEY REFERENCES public.entity(node_id) ON DELETE CASCADE,
     sub_client_node_id   TEXT,
     sub_client_alias     TEXT,
-    trust_node_id        TEXT,            -- nearest 'trust' ancestor
+    trust_node_id        TEXT,            -- nearest 'trust' ancestor (the entity)
     trust_alias          TEXT,
     family_path          TEXT,            -- e.g. "Stonebridge > Dyne Family US > Dylan Dyne > Dylan Trust"
+    vehicle_node_id      TEXT,            -- migration 037: nearest client-demoted shared vehicle (SPV)
+    vehicle_alias        TEXT,            --   between the node and its entity; NULL when none
     created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -293,6 +295,41 @@ CREATE INDEX IF NOT EXISTS nav_grid_scn_idx
     ON public.nav_monthly_carryforward_grid (sub_client_node_id);
 
 -- =============================================================================
+-- alt_position_snapshot — non-listed book, ownership-weighted (migration 036)
+-- =============================================================================
+-- Alts / direct PE+RE / business / loans / collections / non-canonical cash,
+-- one row per (asset x ownership path) at the Security -> Vehicle/SPV -> Entity
+-- grain. Kept SEPARATE from position_snapshot so non-listed NAVs never enter the
+-- returns/Dietz pipeline. Written by scripts/sync_alts.py via
+-- tracker/alt_attribution.py. See docs/all_assets_integration_design.md.
+CREATE TABLE IF NOT EXISTS public.alt_position_snapshot (
+    snapshot_date         DATE   NOT NULL,
+    security_id           BIGINT NOT NULL REFERENCES public.security(security_id),
+    holding_node_id       TEXT   NOT NULL,   -- leaf reflection node for this path
+    sub_client_node_id    TEXT   NOT NULL,   -- family (RLS key)
+    sub_client_alias      TEXT,
+    entity_node_id        TEXT,              -- rolled-up entity (nearest-existing walk)
+    entity_alias          TEXT,
+    vehicle_node_id       TEXT,              -- SPV = leaf trust_alias; NULL when == entity
+    vehicle_alias         TEXT,
+    ownership_pct         NUMERIC(12, 8),    -- chain-product fraction for THIS path, 0..1
+    full_value_reporting  NUMERIC,           -- 100% NAV of the asset
+    mv_reporting          NUMERIC,           -- = full_value_reporting * ownership_pct (signed)
+    reporting_ccy         CHAR(3),
+    value_source          TEXT,              -- 'cef' | 'gwm' | 'holdings'
+    valuation_date        DATE,              -- point-in-time NAV date (often quarter-lagged)
+    entity_rollup         TEXT,              -- 'existing' | 'branch-fallback'
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (snapshot_date, holding_node_id, security_id)
+);
+CREATE INDEX IF NOT EXISTS alt_pos_family_date_idx
+    ON public.alt_position_snapshot (sub_client_node_id, snapshot_date);
+CREATE INDEX IF NOT EXISTS alt_pos_entity_idx
+    ON public.alt_position_snapshot (entity_node_id);
+CREATE INDEX IF NOT EXISTS alt_pos_vehicle_idx
+    ON public.alt_position_snapshot (vehicle_node_id) WHERE vehicle_node_id IS NOT NULL;
+
+-- =============================================================================
 -- Views — read models for the frontend / downstream apps
 -- =============================================================================
 
@@ -347,7 +384,8 @@ SELECT
     p.unit_cost_local,
     p.total_cost_local,
     (p.mv_local - p.total_cost_local) AS unrealized_gl_local,
-    p.accrued_interest_reporting
+    p.accrued_interest_reporting,
+    ea.vehicle_alias                       -- migration 037
 FROM public.position_snapshot p
 JOIN latest_per_account la
        ON la.account_node_id = p.account_node_id
@@ -525,6 +563,36 @@ JOIN public.entity e ON t.account_node_id = e.node_id
 LEFT JOIN public.entity_attribution ea ON t.account_node_id = ea.node_id
 WHERE t.is_external_flow = TRUE;
 
+-- Latest non-listed position per (holding, security), joined to security
+-- (migration 036). security_invoker so family RLS flows through.
+CREATE OR REPLACE VIEW public.v_latest_alt_positions
+WITH (security_invoker = true) AS
+SELECT a.snapshot_date, a.security_id, a.holding_node_id,
+       a.sub_client_node_id, a.sub_client_alias,
+       a.entity_node_id, a.entity_alias, a.vehicle_node_id, a.vehicle_alias,
+       a.ownership_pct, a.full_value_reporting, a.mv_reporting, a.reporting_ccy,
+       a.value_source, a.valuation_date, a.entity_rollup,
+       s.asset_class, s.security_type, s.asset_name
+FROM (
+    SELECT DISTINCT ON (holding_node_id, security_id) *
+    FROM public.alt_position_snapshot
+    ORDER BY holding_node_id, security_id, snapshot_date DESC
+) a
+JOIN public.security s ON s.security_id = a.security_id;
+
+-- Combined net-worth view: listed (with vehicle, migration 037) + non-listed.
+CREATE OR REPLACE VIEW public.v_net_worth_positions
+WITH (security_invoker = true) AS
+SELECT sub_client_alias, trust_alias AS entity_alias, vehicle_alias,
+       account_alias, asset_class, security_type, mv_reporting, reporting_ccy,
+       'listed'::text AS book
+FROM public.v_latest_positions
+UNION ALL
+SELECT sub_client_alias, entity_alias, vehicle_alias, NULL::text AS account_alias,
+       asset_class, security_type, mv_reporting, reporting_ccy,
+       'non-listed'::text AS book
+FROM public.v_latest_alt_positions;
+
 -- =============================================================================
 -- RLS — enable, no policies yet (block all by default until policies added)
 -- =============================================================================
@@ -539,6 +607,7 @@ ALTER TABLE public.index_definition       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.index_price_history    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.security_price_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.nav_monthly_carryforward_grid ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.alt_position_snapshot         ENABLE ROW LEVEL SECURITY;  -- policy in migration 036
 
 -- User-management tables (Phase 2a, migration 028).
 CREATE TABLE IF NOT EXISTS public.app_user (

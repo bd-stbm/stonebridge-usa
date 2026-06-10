@@ -205,6 +205,15 @@ def mark_canonical_accounts(conn) -> None:
 # into The Family Trust (which is excluded from the Dyne US dashboard).
 FORCE_OWN_ENTITY_NODES = {"102_93835"}
 
+# The inverse of FORCE_OWN_ENTITY_NODES: shared vehicles the client wants shown
+# as a VEHICLE (SPV) rather than their own entity — keyed by group_node_id. The
+# leaf-to-root walk records the vehicle and KEEPS climbing to the real owning
+# entity (the trust above it), so the vehicle's positions roll up by ownership.
+# "Dendell LLC - Dell & Broadcom" (group 532580) is co-owned across Dyne +
+# Markiles trusts; the client wants it under those trusts with the LLC kept as a
+# vehicle tag (distinct from the separate "Dendell LLC" alt vehicle).
+VEHICLE_NOT_ENTITY_GROUPS = {"532580"}
+
 
 def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
     """Recompute entity_attribution from the current entity tree.
@@ -283,22 +292,33 @@ def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
         sub_client_nid = sub_client_alias = entity_nid = entity_alias = None
         weak_nid = weak_alias = None
         struct_nid = struct_alias = None
+        vehicle_nid = vehicle_alias = None
         path = []
         cur_id = nid
         for _ in range(50):
             if not cur_id or cur_id == "_":
                 break
-            pid, alias, name, _ = nodes.get(cur_id, (None, None, None, None))
+            pid, alias, name, gnid = nodes.get(cur_id, (None, None, None, None))
             path.append(alias or name or cur_id)
             if cur_id in sub_clients:
                 sub_client_nid = cur_id
                 sub_client_alias = nodes[cur_id][1] or nodes[cur_id][2]
+            # Vehicle demotion (independent of entity selection): record a
+            # client-demoted shared vehicle as the SPV and keep walking up to
+            # the real owning entity (the trust above it). See
+            # VEHICLE_NOT_ENTITY_GROUPS.
+            is_demoted_vehicle = cur_id != nid and gnid in VEHICLE_NOT_ENTITY_GROUPS
+            if vehicle_nid is None and is_demoted_vehicle:
+                vehicle_nid = cur_id
+                vehicle_alias = alias or name
             # Strong match: first-encountered wins. Walk goes leaf-to-
             # root, so a shared vehicle directly above a Goldman account
             # (e.g. Modyl LP) beats a higher-up trust (Mark I Dyne
             # 2010). For accounts not under any shared vehicle, the
-            # first trust / retirement-wrapper ancestor wins.
-            if entity_nid is None and cur_id != nid and (
+            # first trust / retirement-wrapper ancestor wins. A demoted
+            # vehicle never counts as the entity — the walk continues
+            # past it to the trust above.
+            if entity_nid is None and cur_id != nid and not is_demoted_vehicle and (
                 cur_id in FORCE_OWN_ENTITY_NODES
                 or cur_id in shared_vehicle_nodes
                 or _is_trust(alias, name)
@@ -356,20 +376,24 @@ def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:
                 entity_nid = nid
                 entity_alias = self_alias or self_name
         rows.append((nid, sub_client_nid, sub_client_alias,
-                     entity_nid, entity_alias, " > ".join(reversed(path))))
+                     entity_nid, entity_alias, " > ".join(reversed(path)),
+                     vehicle_nid, vehicle_alias))
 
     with conn.cursor() as cur:
         cur.executemany(
             """INSERT INTO entity_attribution
                  (node_id, sub_client_node_id, sub_client_alias,
-                  trust_node_id, trust_alias, family_path)
-               VALUES (%s,%s,%s,%s,%s,%s)
+                  trust_node_id, trust_alias, family_path,
+                  vehicle_node_id, vehicle_alias)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
                ON CONFLICT (node_id) DO UPDATE SET
                  sub_client_node_id = EXCLUDED.sub_client_node_id,
                  sub_client_alias   = EXCLUDED.sub_client_alias,
                  trust_node_id      = EXCLUDED.trust_node_id,
                  trust_alias        = EXCLUDED.trust_alias,
-                 family_path        = EXCLUDED.family_path
+                 family_path        = EXCLUDED.family_path,
+                 vehicle_node_id    = EXCLUDED.vehicle_node_id,
+                 vehicle_alias      = EXCLUDED.vehicle_alias
             """,
             rows,
         )
