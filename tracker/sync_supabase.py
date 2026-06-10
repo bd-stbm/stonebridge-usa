@@ -209,10 +209,14 @@ FORCE_OWN_ENTITY_NODES = {"102_93835"}
 # as a VEHICLE (SPV) rather than their own entity — keyed by group_node_id. The
 # leaf-to-root walk records the vehicle and KEEPS climbing to the real owning
 # entity (the trust above it), so the vehicle's positions roll up by ownership.
-# "Dendell LLC - Dell & Broadcom" (group 532580) is co-owned across Dyne +
-# Markiles trusts; the client wants it under those trusts with the LLC kept as a
-# vehicle tag (distinct from the separate "Dendell LLC" alt vehicle).
-VEHICLE_NOT_ENTITY_GROUPS = {"532580"}
+# Explicit allowlist (NOT a blanket "all shared vehicles" rule) so each vehicle
+# is a deliberate choice per family structure — e.g. Bermeister's holding-company
+# tier (SEP / Austinvest / Monto Pty Ltd) intentionally stays as entities.
+# Every group listed here is verified to sit directly under trusts (no orphans).
+#   532580 — Dendell LLC - Dell & Broadcom (Dyne + Markiles trusts)
+#   94842  — Modyl LP                       (Dylan / Mark 2010 / Morgan trusts)
+#   94848  — Optsia Investments LLC         (Dylan / Mark Ian / Morgan trusts)
+VEHICLE_NOT_ENTITY_GROUPS = {"532580", "94842", "94848"}
 
 
 def rebuild_attribution(conn, root_node_id: str = ROOT_NODE_ID) -> int:

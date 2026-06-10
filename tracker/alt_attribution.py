@@ -60,7 +60,8 @@ def _load_tree(conn, sub_client_node_id: str):
         )
         ent = {r["node_id"]: dict(r) for r in cur.fetchall()}
         cur.execute(
-            "SELECT node_id, trust_node_id, trust_alias FROM entity_attribution"
+            "SELECT node_id, trust_node_id, trust_alias, "
+            "vehicle_node_id, vehicle_alias FROM entity_attribution"
         )
         attr = {r["node_id"]: dict(r) for r in cur.fetchall()}
         # entities the tool already shows for this family = trust_alias with
@@ -91,6 +92,12 @@ def compute_alt_rows(
     gval = {r["nodeId"]: r.get("valuation") for r in gwm_payload}
     trust_alias_of = {n: a.get("trust_alias") for n, a in attr.items()}
     trust_node_of = {n: a.get("trust_node_id") for n, a in attr.items()}
+    # A demoted shared vehicle (VEHICLE_NOT_ENTITY_GROUPS, e.g. Optsia/Modyl)
+    # carries an explicit vehicle_alias and a trust_alias = the entity above it.
+    # Prefer that for the SPV tag; fall back to the leaf's trust_alias for the
+    # alt-only SPVs (Goldenberry, Beeca, …) that are still their own trust_alias.
+    vehicle_alias_of = {n: a.get("vehicle_alias") for n, a in attr.items()}
+    vehicle_node_of = {n: a.get("vehicle_node_id") for n, a in attr.items()}
 
     bygroup: dict[str, list[str]] = defaultdict(list)
     for nid, e in ent.items():
@@ -177,8 +184,8 @@ def compute_alt_rows(
             rollup = "existing"
             if e_alias is None:                       # no existing entity on path
                 e_node, e_alias, rollup = b_node, b_alias, "branch-fallback"
-            veh_alias = trust_alias_of.get(n)
-            veh_node = trust_node_of.get(n)
+            veh_alias = vehicle_alias_of.get(n) or trust_alias_of.get(n)
+            veh_node = vehicle_node_of.get(n) or trust_node_of.get(n)
             if veh_alias == e_alias:                  # held directly — no SPV
                 veh_node = veh_alias = None
             rows.append((
