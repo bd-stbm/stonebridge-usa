@@ -4,11 +4,13 @@ import {
   listAccounts,
   listAssetClasses,
   listTrusts,
+  listVehicles,
 } from "@/lib/queries";
 import {
   getSelectedAccounts,
   getSelectedAssetClasses,
   getSelectedTrusts,
+  getSelectedVehicles,
 } from "@/lib/trust-filter";
 import {
   getAccessibleSubClients,
@@ -18,6 +20,7 @@ import {
 import TrustFilter from "@/components/TrustFilter";
 import AccountFilter from "@/components/AccountFilter";
 import AssetClassFilter from "@/components/AssetClassFilter";
+import VehicleFilter from "@/components/VehicleFilter";
 import SubClientSelector from "@/components/SubClientSelector";
 import UserMenu from "@/components/UserMenu";
 import MobileNav from "@/components/MobileNav";
@@ -41,6 +44,7 @@ export default async function Header() {
   const currentTrusts = getSelectedTrusts();
   const currentAccounts = getSelectedAccounts();
   const currentAssetClasses = getSelectedAssetClasses();
+  const currentVehicles = getSelectedVehicles();
 
   // Identity + the families this user can actually see (RLS-scoped). The
   // effective scope is clamped to that set so a client never lands on a
@@ -53,10 +57,11 @@ export default async function Header() {
   const showSubClientSelector =
     (sessionUser?.isAdmin ?? false) || accessibleSubClients.length > 1;
 
-  const [trusts, accounts, assetClasses] = await Promise.all([
+  const [trusts, accounts, assetClasses, vehicles] = await Promise.all([
     listTrusts(scope),
     listAccounts(scope, currentTrusts),
     listAssetClasses(scope),
+    listVehicles(scope),
   ]);
   const subClients = showSubClientSelector ? accessibleSubClients : [];
 
@@ -140,6 +145,7 @@ export default async function Header() {
             classes={assetClasses}
             currentClasses={currentAssetClasses}
           />
+          <VehicleFilter vehicles={vehicles} currentVehicles={currentVehicles} />
         </div>
       </div>
     </header>

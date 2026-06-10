@@ -1,11 +1,9 @@
 import KpiTile from "@/components/KpiTile";
 import NetWorthAllocationTable from "@/components/NetWorthAllocationTable";
 import NetWorthBreakdown from "@/components/NetWorthBreakdown";
-import VehicleFilter from "@/components/VehicleFilter";
 import {
   getEntityBranchMap,
   getNetWorthRows,
-  listVehicles,
 } from "@/lib/queries";
 import { computeAllocation, computeBreakdown } from "@/lib/networth";
 import { getSelectedTrusts, getSelectedVehicles } from "@/lib/trust-filter";
@@ -19,10 +17,9 @@ export default async function NetWorthPage() {
   const trusts = getSelectedTrusts();
   const vehicles = getSelectedVehicles();
 
-  const [rows, branchMap, vehicleOptions] = await Promise.all([
+  const [rows, branchMap] = await Promise.all([
     getNetWorthRows(subClient, trusts, vehicles),
     getEntityBranchMap(subClient),
-    listVehicles(subClient),
   ]);
 
   const summary = computeAllocation(rows);
@@ -55,10 +52,7 @@ export default async function NetWorthPage() {
     <main className="mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="text-2xl font-semibold text-slate-900">Net Worth</h1>
-        <div className="flex items-center gap-4">
-          <span className="text-xs text-slate-500">{scopeNote}</span>
-          <VehicleFilter vehicles={vehicleOptions} currentVehicles={vehicles} />
-        </div>
+        <span className="text-xs text-slate-500">{scopeNote}</span>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">

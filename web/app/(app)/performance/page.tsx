@@ -20,8 +20,10 @@ import {
   getSelectedAssetClasses,
   getSelectedBenchmark,
   getSelectedTrusts,
+  getSelectedVehicles,
 } from "@/lib/trust-filter";
 import { getActiveSubClient } from "@/lib/session";
+import VehicleScopeNote from "@/components/VehicleScopeNote";
 import {
   computeAllPeriodReturns,
   computeIndexReturnsForAllPeriods,
@@ -79,6 +81,7 @@ export default async function PerformancePage() {
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
   const assetClasses = getSelectedAssetClasses();
+  const vehicles = getSelectedVehicles();
   const benchmarkTicker = getSelectedBenchmark();
 
   // Attribution window: last N completed months + current month.
@@ -259,6 +262,7 @@ export default async function PerformancePage() {
 
   return (
     <main className="mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6">
+      <VehicleScopeNote vehicles={vehicles} />
       <div className="flex items-baseline justify-between">
         <h1 className="text-2xl font-semibold text-slate-900">Performance</h1>
         <span className="text-xs text-slate-500">

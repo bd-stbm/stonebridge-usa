@@ -17,8 +17,10 @@ import {
   getSelectedAssetClasses,
   getSelectedBenchmark,
   getSelectedTrusts,
+  getSelectedVehicles,
 } from "@/lib/trust-filter";
 import { getActiveSubClient } from "@/lib/session";
+import VehicleScopeNote from "@/components/VehicleScopeNote";
 import {
   computeIndexReturnsForAllPeriods,
   computePeriodStart,
@@ -34,6 +36,7 @@ export default async function OverviewPage() {
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
   const assetClasses = getSelectedAssetClasses();
+  const vehicles = getSelectedVehicles();
   const benchmarkTicker = getSelectedBenchmark();
   // Start NAVs for MTD / YTD / 6M / 1Y via the per-account carry-forward RPC.
   // Each account is valued at its latest snapshot ≤ the target date — the
@@ -159,6 +162,11 @@ export default async function OverviewPage() {
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+      {vehicles.length > 0 ? (
+        <div className="mb-4">
+          <VehicleScopeNote vehicles={vehicles} />
+        </div>
+      ) : null}
       <div className="flex flex-col gap-4 md:flex-row md:items-stretch">
         <div className="min-w-0 md:flex-[0.8]">
           <KpiTile

@@ -5,6 +5,7 @@ import {
   getSelectedAccounts,
   getSelectedAssetClasses,
   getSelectedTrusts,
+  getSelectedVehicles,
 } from "@/lib/trust-filter";
 import { getActiveSubClient } from "@/lib/session";
 import { money } from "@/lib/format";
@@ -39,6 +40,7 @@ export default async function TransactionsPage({
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
   const assetClasses = getSelectedAssetClasses();
+  const vehicles = getSelectedVehicles();
 
   const from = isValidIso(searchParams.from) ? searchParams.from : defaultFrom();
   const to = isValidIso(searchParams.to) ? searchParams.to : defaultTo();
@@ -50,6 +52,7 @@ export default async function TransactionsPage({
     from,
     to,
     assetClasses,
+    vehicles,
   );
 
   const reportingCcy = transactions[0]?.reporting_ccy ?? "USD";

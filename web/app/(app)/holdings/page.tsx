@@ -8,6 +8,7 @@ import {
   getSelectedAccounts,
   getSelectedAssetClasses,
   getSelectedTrusts,
+  getSelectedVehicles,
 } from "@/lib/trust-filter";
 import { getActiveSubClient } from "@/lib/session";
 
@@ -18,8 +19,11 @@ export default async function HoldingsPage() {
   const trusts = getSelectedTrusts();
   const accounts = getSelectedAccounts();
   const assetClasses = getSelectedAssetClasses();
+  const vehicles = getSelectedVehicles();
   const [positions, periodGains] = await Promise.all([
-    getLatestPositions(subClient, trusts, accounts, assetClasses),
+    getLatestPositions(subClient, trusts, accounts, assetClasses, vehicles),
+    // Period gains are keyed per (account, security) and looked up for whatever
+    // positions are shown, so they need no vehicle filter — extra keys are inert.
     getHoldingsPeriodGains(subClient, trusts, accounts, assetClasses),
   ]);
   // Serialise the Map for the client component boundary — Map isn't

@@ -191,9 +191,14 @@ For each period:
 | 6M | Refreshed sum | **`reconstructed_nav_at(today − 6m)` RPC** — falls back to snapshot grid if RPC returns NULL | External flows in window |
 | 12M | Refreshed sum | **`reconstructed_nav_at(today − 1y)` RPC** — currently clamps to Jun 2025 anchor (earliest Masttro snapshot) | External flows in window |
 
-When an **asset class** is selected in the Returns tile, flows are zeroed
-(trust-level deposits aren't asset-class-typed) and the result is labelled
-"price-only" in the subline.
+When an **asset class** is selected in the Returns tile, returns stay
+flow-aware but the flow **source switches**: from trust-level external
+Deposit/Withdrawal (`v_external_flows`) to per-class Buy/Sell/dividend/interest
+flows (`getFlowsByAssetClass` → `v_transactions` bucketed by `asset_class`).
+External cash flows drop out (no `asset_class` — they sit in cash before
+deployment); in-class trading/income flows are fully counted. See
+`getPeriodReturns` (`userFiltered` branch). The Vehicle/SPV filter (Option C)
+mirrors this with a per-vehicle flow source.
 
 Benchmarks (`^SP500TR`, `ACWI`) come from `index_price_history`. The TR
 comparison is apples-to-apples since portfolio mv_reporting includes

@@ -466,9 +466,10 @@ export async function getLatestPositions(
   trusts: string[] = [],
   accounts: string[] = [],
   assetClasses: string[] = [],
+  vehicles: string[] = [],
 ): Promise<Position[]> {
   const effective = effectiveAssetClasses(assetClasses);
-  return timed(`getLatestPositions(${trusts.length}t,${accounts.length}a,${effective.length}c)`, async () => {
+  return timed(`getLatestPositions(${trusts.length}t,${accounts.length}a,${effective.length}c,${vehicles.length}v)`, async () => {
     // Query v_positions_refreshed (joins yfinance via pricing_refresh) so the
     // NAV figures throughout the dashboard reflect today's market price when
     // yfinance has the security. PostgREST alias `mv_reporting:mv_reporting_refreshed`
@@ -489,6 +490,7 @@ export async function getLatestPositions(
       .eq("sub_client_alias", subClient);
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
+    if (vehicles.length) q = q.in("vehicle_alias", vehicles);
     const excluded = excludedEntities(subClient);
     if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
     q = applyAssetClassFilter(q, effective);
@@ -1025,9 +1027,10 @@ export async function getIncomeRows(
   accounts: string[] = [],
   fromDate: string = "2020-01-01",
   assetClasses: string[] = [],
+  vehicles: string[] = [],
 ): Promise<IncomeRow[]> {
   const effective = effectiveAssetClasses(assetClasses);
-  return timed(`getIncomeRows(${trusts.length}t,${accounts.length}a,${effective.length}c)`, async () => {
+  return timed(`getIncomeRows(${trusts.length}t,${accounts.length}a,${effective.length}c,${vehicles.length}v)`, async () => {
     let q = getSupabaseServer()
       .from("v_income_monthly")
       .select(
@@ -1040,6 +1043,7 @@ export async function getIncomeRows(
       .order("month", { ascending: true });
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
+    if (vehicles.length) q = q.in("vehicle_alias", vehicles);
     const excluded = excludedEntities(subClient);
     if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
     q = applyAssetClassFilter(q, effective);
@@ -1085,9 +1089,10 @@ export async function getTransactions(
   fromDate: string = "2020-01-01",
   toDate: string | null = null,
   assetClasses: string[] = [],
+  vehicles: string[] = [],
 ): Promise<Transaction[]> {
   const effective = effectiveAssetClasses(assetClasses);
-  return timed(`getTransactions(${trusts.length}t,${accounts.length}a,${effective.length}c)`, async () => {
+  return timed(`getTransactions(${trusts.length}t,${accounts.length}a,${effective.length}c,${vehicles.length}v)`, async () => {
     let q = getSupabaseServer()
       .from("v_transactions")
       .select(
@@ -1103,6 +1108,7 @@ export async function getTransactions(
     if (toDate) q = q.lte("transaction_date", toDate);
     if (trusts.length) q = q.in("trust_alias", trusts);
     if (accounts.length) q = q.in("account_node_id", accounts);
+    if (vehicles.length) q = q.in("vehicle_alias", vehicles);
     const excluded = excludedEntities(subClient);
     if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
     q = applyAssetClassFilter(q, effective);
