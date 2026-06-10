@@ -24,6 +24,7 @@ import MobileNav from "@/components/MobileNav";
 
 const TABS = [
   { href: "/", label: "Overview" },
+  { href: "/networth", label: "Net Worth" },
   { href: "/holdings", label: "Holdings" },
   { href: "/performance", label: "Performance" },
   { href: "/income", label: "Income" },

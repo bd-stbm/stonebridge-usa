@@ -374,6 +374,91 @@ export async function listTrusts(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Net Worth / All Assets — listed + non-listed combined. These rows carry no
+// daily price and no benchmark; the /networth view only sums NAVs. No
+// effectiveAssetClasses() / EXCLUDED_ENTITIES here — net worth must reconcile
+// to the full Masttro picture.
+// ---------------------------------------------------------------------------
+
+import type { NetWorthRow } from "./networth";
+export type { NetWorthRow } from "./networth";
+
+export async function getNetWorthRows(
+  subClient: string = DEFAULT_SUB_CLIENT,
+  trusts: string[] = [],
+  vehicles: string[] = [],
+): Promise<NetWorthRow[]> {
+  return timed(`getNetWorthRows(${trusts.length}t,${vehicles.length}v)`, async () => {
+    let q = getSupabaseServer()
+      .from("v_net_worth_positions")
+      .select(
+        "book, entity_alias, vehicle_alias, account_alias, asset_class, " +
+          "security_type, mv_reporting, reporting_ccy",
+      )
+      .eq("sub_client_alias", subClient);
+    if (trusts.length) q = q.in("entity_alias", trusts);
+    // A vehicle/SPV selection drills into non-listed holdings of those vehicles
+    // (listed rows have a null vehicle, so they fall away — intended).
+    if (vehicles.length) q = q.in("vehicle_alias", vehicles);
+    const { data, error } = await q.limit(LIMIT_LARGE);
+    if (error) throw error;
+    const raw = (data ?? []) as unknown as NetWorthRow[];
+    return raw.map(r => ({ ...r, mv_reporting: Number(r.mv_reporting ?? 0) }));
+  });
+}
+
+export async function listVehicles(
+  subClient: string = DEFAULT_SUB_CLIENT,
+): Promise<string[]> {
+  return timed("listVehicles", async () => {
+    const { data, error } = await getSupabaseServer()
+      .from("v_latest_alt_positions")
+      .select("vehicle_alias")
+      .eq("sub_client_alias", subClient)
+      .not("vehicle_alias", "is", null)
+      .limit(LIMIT_LARGE);
+    if (error) throw error;
+    const rows = (data ?? []) as unknown as Array<{ vehicle_alias: string }>;
+    return Array.from(new Set(rows.map(r => r.vehicle_alias))).sort();
+  });
+}
+
+// entity_alias -> branch (family_path level 3, e.g. "Mark Dyne"). Most common
+// branch wins per entity. Drives the Entity<->Branch toggle on /networth.
+export async function getEntityBranchMap(
+  subClient: string = DEFAULT_SUB_CLIENT,
+): Promise<Record<string, string>> {
+  return timed("getEntityBranchMap", async () => {
+    const { data, error } = await getSupabaseServer()
+      .from("entity_attribution")
+      .select("trust_alias, family_path")
+      .eq("sub_client_alias", subClient)
+      .not("trust_alias", "is", null)
+      .not("family_path", "is", null)
+      .limit(LIMIT_LARGE);
+    if (error) throw error;
+    const rows = (data ?? []) as unknown as Array<{
+      trust_alias: string;
+      family_path: string;
+    }>;
+    // count branch occurrences per entity, keep the modal branch
+    const counts = new Map<string, Map<string, number>>();
+    for (const r of rows) {
+      const parts = r.family_path.split(">").map(s => s.trim());
+      const branch = parts.length > 2 ? parts[2] : r.trust_alias;
+      const m = counts.get(r.trust_alias) ?? new Map<string, number>();
+      m.set(branch, (m.get(branch) ?? 0) + 1);
+      counts.set(r.trust_alias, m);
+    }
+    const out: Record<string, string> = {};
+    for (const [entity, m] of counts) {
+      out[entity] = Array.from(m.entries()).sort((a, b) => b[1] - a[1])[0][0];
+    }
+    return out;
+  });
+}
+
 export async function getLatestPositions(
   subClient: string = DEFAULT_SUB_CLIENT,
   trusts: string[] = [],

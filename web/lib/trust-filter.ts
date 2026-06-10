@@ -7,6 +7,7 @@ import { cookies } from "next/headers";
 export const TRUST_COOKIE = "trust_filter";
 export const ACCOUNT_COOKIE = "account_filter";
 export const ASSET_CLASS_COOKIE = "asset_class_filter";
+export const VEHICLE_COOKIE = "vehicle_filter";
 export const BENCHMARK_COOKIE = "benchmark";
 export const SUB_CLIENT_COOKIE = "sub_client";
 
@@ -40,6 +41,11 @@ export function getSelectedAccounts(): string[] {
 
 export function getSelectedAssetClasses(): string[] {
   return parseList(cookies().get(ASSET_CLASS_COOKIE)?.value);
+}
+
+// SPV / vehicle drill-down on the /networth view. Empty = all vehicles.
+export function getSelectedVehicles(): string[] {
+  return parseList(cookies().get(VEHICLE_COOKIE)?.value);
 }
 
 export function getSelectedBenchmark(): string {

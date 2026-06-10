@@ -7,6 +7,7 @@ import {
   BENCHMARK_COOKIE,
   SUB_CLIENT_COOKIE,
   TRUST_COOKIE,
+  VEHICLE_COOKIE,
 } from "./trust-filter";
 
 const ONE_YEAR = 60 * 60 * 24 * 365;
@@ -38,6 +39,10 @@ export async function setAccountFilter(accounts: string[]): Promise<void> {
 
 export async function setAssetClassFilter(classes: string[]): Promise<void> {
   setOrClearList(ASSET_CLASS_COOKIE, classes);
+}
+
+export async function setVehicleFilter(vehicles: string[]): Promise<void> {
+  setOrClearList(VEHICLE_COOKIE, vehicles);
 }
 
 export async function setSubClient(subClient: string): Promise<void> {
