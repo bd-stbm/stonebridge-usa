@@ -26,7 +26,7 @@ import UserMenu from "@/components/UserMenu";
 import MobileNav from "@/components/MobileNav";
 
 const TABS = [
-  { href: "/", label: "Overview" },
+  { href: "/", label: "Markets" },
   { href: "/networth", label: "Net Worth" },
   { href: "/holdings", label: "Holdings" },
   { href: "/performance", label: "Performance" },
