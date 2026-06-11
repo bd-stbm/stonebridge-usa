@@ -268,8 +268,9 @@ export interface AccountOption {
 export async function listAccounts(
   subClient: string = DEFAULT_SUB_CLIENT,
   trusts: string[] = [],
+  vehicles: string[] = [],
 ): Promise<AccountOption[]> {
-  return timed(`listAccounts(${trusts.length}t)`, async () => {
+  return timed(`listAccounts(${trusts.length}t,${vehicles.length}v)`, async () => {
     // Source from v_latest_positions so we only get accounts that
     // actually hold positions in the latest snapshot. The same physical
     // custody account often appears under many account_node_ids — once
@@ -289,6 +290,10 @@ export async function listAccounts(
       )
       .eq("sub_client_alias", subClient);
     if (trusts.length) q = q.in("trust_alias", trusts);
+    // Cascade on the Vehicle/SPV selection too — only custody accounts that hold
+    // positions through the selected vehicle(s). (Alt-only vehicles have no
+    // listed custody account, so picking one legitimately yields no accounts.)
+    if (vehicles.length) q = q.in("vehicle_alias", vehicles);
     const excluded = excludedEntities(subClient);
     if (excluded.length) q = q.not("trust_alias", "in", postgrestInList(excluded));
     const { data, error } = await q.limit(LIMIT_LARGE);
@@ -410,16 +415,19 @@ export async function getNetWorthRows(
 
 export async function listVehicles(
   subClient: string = DEFAULT_SUB_CLIENT,
+  trusts: string[] = [],
 ): Promise<string[]> {
-  return timed("listVehicles", async () => {
+  return timed(`listVehicles(${trusts.length}t)`, async () => {
     // Read from the combined net-worth view so the filter covers both books:
     // alt SPVs AND listed vehicles like "Dendell LLC - Dell & Broadcom".
-    const { data, error } = await getSupabaseServer()
+    // Cascade on the Entity selection — only vehicles held under those entities.
+    let q = getSupabaseServer()
       .from("v_net_worth_positions")
       .select("vehicle_alias")
       .eq("sub_client_alias", subClient)
-      .not("vehicle_alias", "is", null)
-      .limit(LIMIT_LARGE);
+      .not("vehicle_alias", "is", null);
+    if (trusts.length) q = q.in("entity_alias", trusts);
+    const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
     const rows = (data ?? []) as unknown as Array<{ vehicle_alias: string }>;
     return Array.from(new Set(rows.map(r => r.vehicle_alias))).sort();

@@ -59,9 +59,9 @@ export default async function Header() {
 
   const [trusts, accounts, assetClasses, vehicles] = await Promise.all([
     listTrusts(scope),
-    listAccounts(scope, currentTrusts),
+    listAccounts(scope, currentTrusts, currentVehicles),
     listAssetClasses(scope),
-    listVehicles(scope),
+    listVehicles(scope, currentTrusts),
   ]);
   const subClients = showSubClientSelector ? accessibleSubClients : [];
 

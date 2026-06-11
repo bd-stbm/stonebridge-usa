@@ -27,10 +27,11 @@ function setOrClearList(name: string, values: string[]): void {
 
 export async function setTrustFilter(trusts: string[]): Promise<void> {
   setOrClearList(TRUST_COOKIE, trusts);
-  // Changing trusts almost always invalidates previously-selected accounts
-  // (the account may now be outside scope). Clear so the AccountFilter
-  // resets and the page re-renders with the new trust set.
+  // Changing trusts almost always invalidates previously-selected accounts and
+  // vehicles (both cascade on the entity selection). Clear so those filters
+  // reset to the new entity scope.
   cookies().delete(ACCOUNT_COOKIE);
+  cookies().delete(VEHICLE_COOKIE);
 }
 
 export async function setAccountFilter(accounts: string[]): Promise<void> {
@@ -43,6 +44,9 @@ export async function setAssetClassFilter(classes: string[]): Promise<void> {
 
 export async function setVehicleFilter(vehicles: string[]): Promise<void> {
   setOrClearList(VEHICLE_COOKIE, vehicles);
+  // The Account dropdown cascades on the vehicle selection, so a previously
+  // picked account may now be out of scope — clear it.
+  cookies().delete(ACCOUNT_COOKIE);
 }
 
 export async function setSubClient(subClient: string): Promise<void> {
