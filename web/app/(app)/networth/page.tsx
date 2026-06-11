@@ -38,7 +38,7 @@ export default async function NetWorthPage({
     getNetWorthRows(subClient, trusts, vehicles),
     isOneDay
       ? getOneDayByClass(subClient, trusts, vehicles)
-      : getPerformanceByClass(subClient, period, trusts),
+      : getPerformanceByClass(subClient, period, trusts, vehicles),
   ]);
 
   const baseSummary = computeAllocation(rows);

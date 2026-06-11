@@ -421,24 +421,41 @@ export async function getPerformanceByClass(
   subClient: string = DEFAULT_SUB_CLIENT,
   period: number = 4,
   trusts: string[] = [],
+  vehicles: string[] = [],
 ): Promise<Record<string, { start: number; end: number; flows: number }>> {
-  return timed(`getPerformanceByClass(p${period},${trusts.length}t)`, async () => {
-    // No entity filter -> the EXACT family-scope per-class view. Entity filter ->
-    // the per-entity-class view (scope='entity', Masttro-matching), summed across
-    // the selected entities.
-    let q = trusts.length
-      ? getSupabaseServer()
+  return timed(
+    `getPerformanceByClass(p${period},${trusts.length}t,${vehicles.length}v)`,
+    async () => {
+      // Source by filter, most-specific first:
+      //  - Vehicle selected -> family-dim view scoped to the vehicle (+ entity if
+      //    also set). MUST be the start NAV's source too, else the vehicle-filtered
+      //    end is divided by the whole-family start (garbage).
+      //  - Entity only -> the EXACT per-entity-class view (scope='entity').
+      //  - Neither -> the EXACT family per-class view.
+      let q;
+      if (vehicles.length) {
+        q = getSupabaseServer()
+          .from("v_performance_family_dim")
+          .select("asset_class, start_nav, end_nav, flows")
+          .eq("sub_client_alias", subClient)
+          .eq("period", period)
+          .in("vehicle_alias", vehicles);
+        if (trusts.length) q = q.in("entity_alias", trusts);
+      } else if (trusts.length) {
+        q = getSupabaseServer()
           .from("v_performance_entity_class")
           .select("asset_class, start_nav, end_nav, flows")
           .eq("sub_client_alias", subClient)
           .eq("period", period)
-          .in("entity_alias", trusts)
-      : getSupabaseServer()
+          .in("entity_alias", trusts);
+      } else {
+        q = getSupabaseServer()
           .from("v_performance_by_class")
           .select("asset_class, start_nav, end_nav, flows")
           .eq("sub_client_alias", subClient)
           .eq("period", period);
-    const { data, error } = await q.limit(LIMIT_LARGE);
+      }
+      const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
     const rows = (data ?? []) as unknown as Array<{
       asset_class: string | null;
