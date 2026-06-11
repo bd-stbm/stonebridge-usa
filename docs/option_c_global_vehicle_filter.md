@@ -1,6 +1,9 @@
 # Option C — global Vehicle/SPV filter
 
-Status: **in progress.** Make the Vehicle/SPV filter a first-class global filter
+Status: **COMPLETE (2026-06-10).** Phase 1 (migration 038) + Phase 2 (migration
+039) both applied to the live DB and committed (36d6c8a, 18f87e6). The
+Vehicle/SPV filter is a first-class global header filter that scopes every tab
+including returns, flow-aware. Make the Vehicle/SPV filter a first-class global filter
 (header sub-bar) that scopes every tab, including the returns / NAV-over-time
 surfaces — not just the in-page /networth filter.
 

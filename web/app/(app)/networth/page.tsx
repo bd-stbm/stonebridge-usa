@@ -1,10 +1,7 @@
 import KpiTile from "@/components/KpiTile";
 import NetWorthAllocationTable from "@/components/NetWorthAllocationTable";
 import NetWorthBreakdown from "@/components/NetWorthBreakdown";
-import {
-  getEntityBranchMap,
-  getNetWorthRows,
-} from "@/lib/queries";
+import { getNetWorthRows } from "@/lib/queries";
 import { computeAllocation, computeBreakdown } from "@/lib/networth";
 import { getSelectedTrusts, getSelectedVehicles } from "@/lib/trust-filter";
 import { getActiveSubClient } from "@/lib/session";
@@ -17,14 +14,11 @@ export default async function NetWorthPage() {
   const trusts = getSelectedTrusts();
   const vehicles = getSelectedVehicles();
 
-  const [rows, branchMap] = await Promise.all([
-    getNetWorthRows(subClient, trusts, vehicles),
-    getEntityBranchMap(subClient),
-  ]);
+  const rows = await getNetWorthRows(subClient, trusts, vehicles);
 
   const summary = computeAllocation(rows);
-  const byEntity = computeBreakdown(rows, branchMap, "entity");
-  const byBranch = computeBreakdown(rows, branchMap, "branch");
+  // branchMap unused for the entity grouping — pass an empty map.
+  const byEntity = computeBreakdown(rows, {}, "entity");
   const ccy = summary.reportingCcy || "USD";
 
   const listedTotal = rows
@@ -79,7 +73,7 @@ export default async function NetWorthPage() {
       </section>
 
       <section>
-        <NetWorthBreakdown byEntity={byEntity} byBranch={byBranch} reportingCcy={ccy} />
+        <NetWorthBreakdown rows={byEntity} reportingCcy={ccy} />
       </section>
     </main>
   );
