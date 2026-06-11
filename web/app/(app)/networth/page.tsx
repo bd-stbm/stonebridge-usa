@@ -2,10 +2,15 @@ import KpiTile from "@/components/KpiTile";
 import NetWorthAllocationTable from "@/components/NetWorthAllocationTable";
 import NetWorthBreakdown from "@/components/NetWorthBreakdown";
 import PeriodSelector from "@/components/PeriodSelector";
-import { getNetWorthRows, getPerformanceByClass } from "@/lib/queries";
+import {
+  getNetWorthRows,
+  getOneDayByClass,
+  getPerformanceByClass,
+} from "@/lib/queries";
 import {
   computeAllocation,
   computeBreakdown,
+  ONE_DAY,
   periodReturn,
   RETURN_PERIODS,
 } from "@/lib/networth";
@@ -28,14 +33,61 @@ export default async function NetWorthPage({
     : 4;
   const periodLabel = RETURN_PERIODS.find(p => p.code === period)?.label ?? "12M";
 
-  const [rows, perfByClass] = await Promise.all([
+  const isOneDay = period === ONE_DAY;
+  const [rows, perfRaw] = await Promise.all([
     getNetWorthRows(subClient, trusts, vehicles),
-    getPerformanceByClass(subClient, period, trusts),
+    isOneDay
+      ? getOneDayByClass(subClient, trusts, vehicles)
+      : getPerformanceByClass(subClient, period, trusts),
   ]);
 
   const baseSummary = computeAllocation(rows);
-  // Attach the period return per asset class (family-level, all-assets — exact
-  // per the performance_snapshot reconciliation).
+  // baseSummary.mv is the live net-worth value per class — yfinance-refreshed for
+  // listed (migration 042) + current non-listed. That is the END NAV for returns.
+  const mvByClass: Record<string, number> = {};
+  for (const c of baseSummary.categories) mvByClass[c.asset_class] = c.mv;
+
+  // Per-class return components {start, end, flows} for the selected period.
+  let perfByClass: Record<string, { start: number; end: number; flows: number }> = {};
+  let totalComp: { start: number; end: number; flows: number };
+
+  if (isOneDay) {
+    // 1D is computed live (listed today-vs-yesterday from yfinance); non-liquid
+    // assets are flat but still part of the NAV base (so they dilute the move).
+    const nonListed: Record<string, number> = {};
+    for (const r of rows) {
+      if (r.book === "non-listed") {
+        const ac = r.asset_class ?? "(unclassified)";
+        nonListed[ac] = (nonListed[ac] ?? 0) + r.mv_reporting;
+      }
+    }
+    for (const ac of new Set([...Object.keys(perfRaw), ...Object.keys(nonListed)])) {
+      const l = perfRaw[ac] ?? { start: 0, end: 0, flows: 0 };
+      const flat = nonListed[ac] ?? 0;
+      perfByClass[ac] = { start: l.start + flat, end: l.end + flat, flows: 0 };
+    }
+    totalComp = Object.values(perfByClass).reduce(
+      (a, c) => ({ start: a.start + c.start, end: a.end + c.end, flows: a.flows + c.flows }),
+      { start: 0, end: 0, flows: 0 },
+    );
+  } else {
+    // MTD/etc: START + flows from Masttro /Performance; END = the live net-worth
+    // value (yfinance listed + current non-listed) — so returns use yfinance like
+    // the rest of the tool, not Masttro's lagged price.
+    for (const ac in perfRaw) {
+      perfByClass[ac] = {
+        start: perfRaw[ac].start,
+        end: mvByClass[ac] ?? perfRaw[ac].end,
+        flows: perfRaw[ac].flows,
+      };
+    }
+    totalComp = {
+      start: Object.values(perfRaw).reduce((a, c) => a + c.start, 0),
+      end: baseSummary.netWorth, // live, incl loan payable — matches /Performance scope
+      flows: Object.values(perfRaw).reduce((a, c) => a + c.flows, 0),
+    };
+  }
+
   const summary = {
     ...baseSummary,
     categories: baseSummary.categories.map(c => ({
@@ -45,11 +97,7 @@ export default async function NetWorthPage({
         : null,
     })),
   };
-  const totals = Object.values(perfByClass).reduce(
-    (a, c) => ({ start: a.start + c.start, end: a.end + c.end, flows: a.flows + c.flows }),
-    { start: 0, end: 0, flows: 0 },
-  );
-  const totalReturn = periodReturn(totals);
+  const totalReturn = periodReturn(totalComp);
   // branchMap unused for the entity grouping — pass an empty map.
   const byEntity = computeBreakdown(rows, {}, "entity");
   const ccy = summary.reportingCcy || "USD";
@@ -107,12 +155,22 @@ export default async function NetWorthPage({
           totalReturn={totalReturn}
         />
         <p className="text-xs text-slate-500">
-          Returns are a blended modified-Dietz over all assets (listed +
-          non-listed) from Masttro /Performance,{" "}
-          {trusts.length
-            ? `for the selected ${trusts.length === 1 ? "entity" : "entities"}`
-            : `at the ${subClient} level`}
-          . Non-listed NAVs are point-in-time (often quarter-lagged).
+          {isOneDay ? (
+            <>
+              1D is today&apos;s price move on listed holdings (yfinance previous
+              close); non-liquid assets are held flat but remain in the NAV base.
+            </>
+          ) : (
+            <>
+              Blended modified-Dietz over all assets{" "}
+              {trusts.length
+                ? `for the selected ${trusts.length === 1 ? "entity" : "entities"}`
+                : `at the ${subClient} level`}
+              : end NAV is live (yfinance-refreshed for listed), period start +
+              flows from Masttro /Performance. Non-listed NAVs are point-in-time
+              (often quarter-lagged).
+            </>
+          )}
         </p>
       </section>
 

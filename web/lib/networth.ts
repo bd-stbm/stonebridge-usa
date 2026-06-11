@@ -24,9 +24,13 @@ export interface AllocationRow {
   periodReturn?: number | null; // blended return for the selected period, 0..1
 }
 
-// The return periods we ingest into performance_snapshot (period code -> label).
-// 3M (code 2) is intentionally not pulled.
+// Return periods. 1D (code -1) is special — computed live from the yfinance
+// refresh (today vs yesterday) with non-liquid assets flat, NOT from
+// performance_snapshot. The rest are Masttro /Performance periods ingested into
+// performance_snapshot (3M / code 2 intentionally not pulled).
+export const ONE_DAY = -1;
 export const RETURN_PERIODS: { code: number; label: string }[] = [
+  { code: ONE_DAY, label: "1D" },
   { code: 0, label: "MTD" },
   { code: 1, label: "YTD" },
   { code: 3, label: "6M" },

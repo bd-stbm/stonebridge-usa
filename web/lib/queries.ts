@@ -460,6 +460,29 @@ export async function getPerformanceByClass(
   });
 }
 
+// 1D return components per LISTED asset class, computed live from the yfinance
+// refresh: end = today's refreshed mv, start = today's positions at yfinance's
+// previous close (mv_reporting_yesterday). Non-listed classes aren't here — the
+// caller treats them as flat (no daily price). Price-only, so flows = 0.
+export async function getOneDayByClass(
+  subClient: string = DEFAULT_SUB_CLIENT,
+  trusts: string[] = [],
+  vehicles: string[] = [],
+): Promise<Record<string, { start: number; end: number; flows: number }>> {
+  return timed(`getOneDayByClass(${trusts.length}t,${vehicles.length}v)`, async () => {
+    const positions = await getLatestPositions(subClient, trusts, [], [], vehicles);
+    const out: Record<string, { start: number; end: number; flows: number }> = {};
+    for (const p of positions) {
+      const ac = p.asset_class ?? "(unclassified)";
+      const e = out[ac] ?? { start: 0, end: 0, flows: 0 };
+      e.end += Number(p.mv_reporting ?? 0); // today (refreshed)
+      e.start += Number(p.mv_reporting_yesterday ?? p.mv_reporting ?? 0); // yesterday
+      out[ac] = e;
+    }
+    return out;
+  });
+}
+
 export async function listVehicles(
   subClient: string = DEFAULT_SUB_CLIENT,
   trusts: string[] = [],
