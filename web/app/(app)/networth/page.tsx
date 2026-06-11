@@ -30,7 +30,7 @@ export default async function NetWorthPage({
 
   const [rows, perfByClass] = await Promise.all([
     getNetWorthRows(subClient, trusts, vehicles),
-    getPerformanceByClass(subClient, period),
+    getPerformanceByClass(subClient, period, trusts),
   ]);
 
   const baseSummary = computeAllocation(rows);
@@ -108,8 +108,11 @@ export default async function NetWorthPage({
         />
         <p className="text-xs text-slate-500">
           Returns are a blended modified-Dietz over all assets (listed +
-          non-listed) from Masttro /Performance, at the {subClient} level. Non-listed
-          NAVs are point-in-time (often quarter-lagged).
+          non-listed) from Masttro /Performance,{" "}
+          {trusts.length
+            ? `for the selected ${trusts.length === 1 ? "entity" : "entities"}`
+            : `at the ${subClient} level`}
+          . Non-listed NAVs are point-in-time (often quarter-lagged).
         </p>
       </section>
 

@@ -420,14 +420,25 @@ export async function getNetWorthRows(
 export async function getPerformanceByClass(
   subClient: string = DEFAULT_SUB_CLIENT,
   period: number = 4,
+  trusts: string[] = [],
 ): Promise<Record<string, { start: number; end: number; flows: number }>> {
-  return timed(`getPerformanceByClass(p${period})`, async () => {
-    const { data, error } = await getSupabaseServer()
-      .from("v_performance_by_class")
-      .select("asset_class, start_nav, end_nav, flows")
-      .eq("sub_client_alias", subClient)
-      .eq("period", period)
-      .limit(LIMIT_LARGE);
+  return timed(`getPerformanceByClass(p${period},${trusts.length}t)`, async () => {
+    // No entity filter -> the EXACT family-scope per-class view. Entity filter ->
+    // the per-entity-class view (scope='entity', Masttro-matching), summed across
+    // the selected entities.
+    let q = trusts.length
+      ? getSupabaseServer()
+          .from("v_performance_entity_class")
+          .select("asset_class, start_nav, end_nav, flows")
+          .eq("sub_client_alias", subClient)
+          .eq("period", period)
+          .in("entity_alias", trusts)
+      : getSupabaseServer()
+          .from("v_performance_by_class")
+          .select("asset_class, start_nav, end_nav, flows")
+          .eq("sub_client_alias", subClient)
+          .eq("period", period);
+    const { data, error } = await q.limit(LIMIT_LARGE);
     if (error) throw error;
     const rows = (data ?? []) as unknown as Array<{
       asset_class: string | null;
@@ -435,14 +446,15 @@ export async function getPerformanceByClass(
       end_nav: number | string | null;
       flows: number | string | null;
     }>;
+    // Sum by asset_class (entity-scope view has one row per entity x class).
     const out: Record<string, { start: number; end: number; flows: number }> = {};
     for (const r of rows) {
       const ac = r.asset_class ?? "(unclassified)";
-      out[ac] = {
-        start: Number(r.start_nav ?? 0),
-        end: Number(r.end_nav ?? 0),
-        flows: Number(r.flows ?? 0),
-      };
+      const e = out[ac] ?? { start: 0, end: 0, flows: 0 };
+      e.start += Number(r.start_nav ?? 0);
+      e.end += Number(r.end_nav ?? 0);
+      e.flows += Number(r.flows ?? 0);
+      out[ac] = e;
     }
     return out;
   });
