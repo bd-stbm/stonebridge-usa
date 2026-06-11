@@ -1,22 +1,55 @@
 import KpiTile from "@/components/KpiTile";
 import NetWorthAllocationTable from "@/components/NetWorthAllocationTable";
 import NetWorthBreakdown from "@/components/NetWorthBreakdown";
-import { getNetWorthRows } from "@/lib/queries";
-import { computeAllocation, computeBreakdown } from "@/lib/networth";
+import PeriodSelector from "@/components/PeriodSelector";
+import { getNetWorthRows, getPerformanceByClass } from "@/lib/queries";
+import {
+  computeAllocation,
+  computeBreakdown,
+  periodReturn,
+  RETURN_PERIODS,
+} from "@/lib/networth";
 import { getSelectedTrusts, getSelectedVehicles } from "@/lib/trust-filter";
 import { getActiveSubClient } from "@/lib/session";
 import { money } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-export default async function NetWorthPage() {
+export default async function NetWorthPage({
+  searchParams,
+}: {
+  searchParams: { period?: string };
+}) {
   const subClient = await getActiveSubClient();
   const trusts = getSelectedTrusts();
   const vehicles = getSelectedVehicles();
+  const period = RETURN_PERIODS.some(p => p.code === Number(searchParams.period))
+    ? Number(searchParams.period)
+    : 4;
+  const periodLabel = RETURN_PERIODS.find(p => p.code === period)?.label ?? "12M";
 
-  const rows = await getNetWorthRows(subClient, trusts, vehicles);
+  const [rows, perfByClass] = await Promise.all([
+    getNetWorthRows(subClient, trusts, vehicles),
+    getPerformanceByClass(subClient, period),
+  ]);
 
-  const summary = computeAllocation(rows);
+  const baseSummary = computeAllocation(rows);
+  // Attach the period return per asset class (family-level, all-assets — exact
+  // per the performance_snapshot reconciliation).
+  const summary = {
+    ...baseSummary,
+    categories: baseSummary.categories.map(c => ({
+      ...c,
+      periodReturn: perfByClass[c.asset_class]
+        ? periodReturn(perfByClass[c.asset_class])
+        : null,
+    })),
+  };
+  const totals = Object.values(perfByClass).reduce(
+    (a, c) => ({ start: a.start + c.start, end: a.end + c.end, flows: a.flows + c.flows }),
+    { start: 0, end: 0, flows: 0 },
+  );
+  const totalReturn = periodReturn(totals);
   // branchMap unused for the entity grouping — pass an empty map.
   const byEntity = computeBreakdown(rows, {}, "entity");
   const ccy = summary.reportingCcy || "USD";
@@ -64,11 +97,19 @@ export default async function NetWorthPage() {
       </div>
 
       <section className="space-y-3">
-        <h2 className="text-base font-semibold text-slate-900">Allocation by asset class</h2>
-        <NetWorthAllocationTable summary={summary} />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-base font-semibold text-slate-900">Allocation by asset class</h2>
+          <PeriodSelector current={period} />
+        </div>
+        <NetWorthAllocationTable
+          summary={summary}
+          periodLabel={periodLabel}
+          totalReturn={totalReturn}
+        />
         <p className="text-xs text-slate-500">
-          Non-listed values are point-in-time NAVs (often quarter-lagged) and carry
-          no daily price or benchmark — returns are not computed on this view.
+          Returns are a blended modified-Dietz over all assets (listed +
+          non-listed) from Masttro /Performance, at the {subClient} level. Non-listed
+          NAVs are point-in-time (often quarter-lagged).
         </p>
       </section>
 

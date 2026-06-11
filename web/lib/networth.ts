@@ -21,6 +21,27 @@ export interface AllocationRow {
   asset_class: string;
   mv: number;
   pct: number; // share of total assets, 0..1
+  periodReturn?: number | null; // blended return for the selected period, 0..1
+}
+
+// The return periods we ingest into performance_snapshot (period code -> label).
+// 3M (code 2) is intentionally not pulled.
+export const RETURN_PERIODS: { code: number; label: string }[] = [
+  { code: 0, label: "MTD" },
+  { code: 1, label: "YTD" },
+  { code: 3, label: "6M" },
+  { code: 4, label: "12M" },
+];
+
+// Modified-Dietz return from period components. null when there's no base.
+export function periodReturn(c: {
+  start: number;
+  end: number;
+  flows: number;
+}): number | null {
+  const den = c.start + 0.5 * c.flows;
+  if (!den) return null;
+  return (c.end - c.start - c.flows) / den;
 }
 
 export interface AllocationSummary {

@@ -413,6 +413,41 @@ export async function getNetWorthRows(
   });
 }
 
+// Blended per-asset-class return components for one period, from the
+// performance_snapshot ingest (migration 040). v_performance_by_class is the
+// EXACT family-level aggregation (matches Masttro's category table). Returns
+// the modified-Dietz inputs per asset_class; the caller computes the ratio.
+export async function getPerformanceByClass(
+  subClient: string = DEFAULT_SUB_CLIENT,
+  period: number = 4,
+): Promise<Record<string, { start: number; end: number; flows: number }>> {
+  return timed(`getPerformanceByClass(p${period})`, async () => {
+    const { data, error } = await getSupabaseServer()
+      .from("v_performance_by_class")
+      .select("asset_class, start_nav, end_nav, flows")
+      .eq("sub_client_alias", subClient)
+      .eq("period", period)
+      .limit(LIMIT_LARGE);
+    if (error) throw error;
+    const rows = (data ?? []) as unknown as Array<{
+      asset_class: string | null;
+      start_nav: number | string | null;
+      end_nav: number | string | null;
+      flows: number | string | null;
+    }>;
+    const out: Record<string, { start: number; end: number; flows: number }> = {};
+    for (const r of rows) {
+      const ac = r.asset_class ?? "(unclassified)";
+      out[ac] = {
+        start: Number(r.start_nav ?? 0),
+        end: Number(r.end_nav ?? 0),
+        flows: Number(r.flows ?? 0),
+      };
+    }
+    return out;
+  });
+}
+
 export async function listVehicles(
   subClient: string = DEFAULT_SUB_CLIENT,
   trusts: string[] = [],
