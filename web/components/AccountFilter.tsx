@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { setAccountFilter } from "@/lib/actions";
 import type { AccountOption } from "@/lib/queries";
 
@@ -12,6 +12,10 @@ interface Props {
 
 export default function AccountFilter({ accounts, currentAccounts }: Props) {
   const router = useRouter();
+  // Account is a listed-custody concept; it doesn't apply to the all-assets Net
+  // Worth view (non-listed has no account, and the blended returns have no
+  // account grain). Grey it out there rather than silently ignore it.
+  const disabledHere = usePathname() === "/networth";
   const [open, setOpen] = useState(false);
   const [selection, setSelection] = useState<Set<string>>(
     () => new Set(currentAccounts),
@@ -97,8 +101,16 @@ export default function AccountFilter({ accounts, currentAccounts }: Props) {
         <button
           type="button"
           onClick={() => setOpen(o => !o)}
-          disabled={pending || accounts.length === 0}
-          className="flex items-center gap-2 rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
+          disabled={pending || accounts.length === 0 || disabledHere}
+          title={
+            disabledHere
+              ? "Account filter applies to Holdings, Income and Transactions — Net Worth is an all-assets view (alternatives have no custody account)."
+              : undefined
+          }
+          className={
+            "flex items-center gap-2 rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-70 " +
+            (disabledHere ? "disabled:cursor-not-allowed" : "disabled:cursor-wait")
+          }
         >
           {pending ? (
             <>
@@ -116,7 +128,7 @@ export default function AccountFilter({ accounts, currentAccounts }: Props) {
           )}
         </button>
       </label>
-      {open ? (
+      {open && !disabledHere ? (
         <div className="absolute right-0 top-full z-20 mt-1 w-[min(20rem,calc(100vw-2rem))] rounded-md border border-slate-200 bg-white shadow-lg">
           <div className="max-h-72 overflow-auto p-1">
             <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50">
