@@ -6,6 +6,16 @@ export function money(n: number, ccy = "USD"): string {
   }).format(n);
 }
 
+// Headline tiles: abbreviate to millions, one decimal place, with the currency
+// symbol — e.g. 334_100_000 -> "$334.1M", -7_260_000 -> "-$7.3M".
+export function moneyM(n: number, ccy = "USD"): string {
+  const sym =
+    new Intl.NumberFormat("en-US", { style: "currency", currency: ccy })
+      .formatToParts(1)
+      .find(p => p.type === "currency")?.value ?? "";
+  return `${n < 0 ? "-" : ""}${sym}${Math.abs(n / 1e6).toFixed(1)}M`;
+}
+
 // Two-decimal currency formatter for per-unit prices, where cents matter.
 // money() rounds to whole units because it's used for NAVs / market values
 // where cents are noise.

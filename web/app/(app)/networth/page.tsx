@@ -16,7 +16,7 @@ import {
 } from "@/lib/networth";
 import { getSelectedTrusts, getSelectedVehicles } from "@/lib/trust-filter";
 import { getActiveSubClient } from "@/lib/session";
-import { money } from "@/lib/format";
+import { moneyM } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -131,15 +131,15 @@ export default async function NetWorthPage({
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <KpiTile label="Total assets" value={money(summary.totalAssets, ccy)} />
+        <KpiTile label="Total assets" value={moneyM(summary.totalAssets, ccy)} />
         <KpiTile
           label="Net worth"
-          value={money(summary.netWorth, ccy)}
-          hint={summary.loanPayable !== 0 ? `incl. ${money(summary.loanPayable, ccy)} loan payable` : undefined}
+          value={moneyM(summary.netWorth, ccy)}
+          hint={summary.loanPayable !== 0 ? `incl. ${moneyM(summary.loanPayable, ccy)} loan payable` : undefined}
         />
         <KpiTile
           label="Listed / non-listed"
-          value={`${money(listedTotal, ccy)} / ${money(nonListedTotal, ccy)}`}
+          value={`${moneyM(listedTotal, ccy)} / ${moneyM(nonListedTotal, ccy)}`}
           hint="Public-priced vs alternatives & direct holdings"
         />
       </div>
